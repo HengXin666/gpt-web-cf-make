@@ -9,7 +9,7 @@ interface RegisterStore {
 
   load: () => Promise<void>;
   save: () => Promise<void>;
-  update: (updates: Record<string, unknown>) => Promise<void>;
+  update: (updates: Record<string, unknown>) => void;
   toggle: () => Promise<void>;
   reset: () => Promise<void>;
   setFromSSE: (config: RegisterConfig) => void;
@@ -51,9 +51,10 @@ export const useRegisterStore = create<RegisterStore>((set, get) => ({
     }
   },
 
-  update: async (updates) => {
-    const updated = await api.updateRegisterConfig(updates);
-    set({ config: updated });
+  update: (updates) => {
+    const cfg = get().config;
+    if (!cfg) return;
+    set({ config: { ...cfg, ...updates } as RegisterConfig });
   },
 
   toggle: async () => {
