@@ -1,0 +1,79 @@
+import { create } from "zustand";
+import type { RegisterConfig } from "../types";
+import { api } from "../api";
+
+interface RegisterStore {
+  config: RegisterConfig | null;
+  loading: boolean;
+  saving: boolean;
+
+  load: () => Promise<void>;
+  save: () => Promise<void>;
+  update: (updates: Record<string, unknown>) => Promise<void>;
+  toggle: () => Promise<void>;
+  reset: () => Promise<void>;
+  setFromSSE: (config: RegisterConfig) => void;
+}
+
+export const useRegisterStore = create<RegisterStore>((set, get) => ({
+  config: null,
+  loading: false,
+  saving: false,
+
+  load: async () => {
+    set({ loading: true });
+    try {
+      const config = await api.getRegisterConfig();
+      set({ config });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  save: async () => {
+    const cfg = get().config;
+    if (!cfg) return;
+    set({ saving: true });
+    try {
+      const updated = await api.updateRegisterConfig({
+        mail: cfg.mail,
+        proxy: cfg.proxy,
+        total: cfg.total,
+        threads: cfg.threads,
+        mode: cfg.mode,
+        target_quota: cfg.target_quota,
+        target_available: cfg.target_available,
+        check_interval: cfg.check_interval,
+      });
+      set({ config: updated });
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  update: async (updates) => {
+    const updated = await api.updateRegisterConfig(updates);
+    set({ config: updated });
+  },
+
+  toggle: async () => {
+    const cfg = get().config;
+    if (!cfg) return;
+    set({ saving: true });
+    try {
+      const result = cfg.enabled ? await api.stopRegister() : await api.startRegister();
+      set({ config: result });
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  reset: async () => {
+    const result = await api.resetRegister();
+    set({ config: result });
+  },
+
+  setFromSSE: (config) => {
+    set({ config });
+  },
+}));
