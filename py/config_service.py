@@ -46,6 +46,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "strategy": "round_robin",
         "timeout_seconds": 120,
         "max_retries": 2,
+        "continue_on_timeout": False,
         "remember_keys": False,
         "models": [
             "gpt-5.5",

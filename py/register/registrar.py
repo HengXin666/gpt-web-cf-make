@@ -17,7 +17,7 @@ from urllib.parse import urljoin
 
 import urllib3
 from curl_cffi import requests as curl_requests
-from ..shared.http_client import get_curl_http_version
+from ..shared.http_client import LOCAL_RETRY_ATTEMPTS, get_curl_http_version, install_local_retry, is_local_retryable_error
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -183,18 +183,23 @@ def _make_trace_headers() -> dict[str, str]:
 
 def _request_with_retry(session: Any, method: str, url: str, retry_attempts: int = 3, **kwargs: Any) -> tuple[Any | None, str]:
     last_error = ""
-    kwargs.setdefault("timeout", 30)
-    for _ in range(max(1, retry_attempts)):
+    timeout = kwargs.setdefault("timeout", 30)
+    attempts = 1 if getattr(session, "_local_retry_installed", False) else max(1, max(retry_attempts, LOCAL_RETRY_ATTEMPTS))
+    for index in range(attempts):
+        if index > 0 and isinstance(timeout, (int, float)):
+            kwargs["timeout"] = timeout + 10
         try:
             return session.request(method.upper(), url, **kwargs), ""
         except Exception as error:
+            if not is_local_retryable_error(error):
+                return None, str(error)
             last_error = str(error)
             time.sleep(1)
     return None, last_error
 
 
 def create_session(proxy: str = "") -> Any:
-    session: Any = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
+    session: Any = install_local_retry(curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version()))
     session.verify = False
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}
@@ -303,6 +308,7 @@ def _extract_oauth_params_from_consent(
         json={"workspace_id": workspace_id},
         headers=headers,
         allow_redirects=False,
+        timeout=30,
     )
     _debug_event(
         "workspace_select",
@@ -337,6 +343,7 @@ def _extract_oauth_params_from_consent(
         json=body,
         headers=org_headers,
         allow_redirects=False,
+        timeout=30,
     )
     _debug_event(
         "organization_select",

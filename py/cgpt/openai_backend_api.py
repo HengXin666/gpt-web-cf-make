@@ -20,6 +20,7 @@ import logging
 logger = logging.getLogger(__name__)
 from .pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
 from .turnstile import solve_turnstile_token
+from ..shared.http_client import install_local_retry
 
 
 class InvalidAccessTokenError(RuntimeError):
@@ -74,10 +75,10 @@ class OpenAIBackendAPI:
         self.session_id = self.fp["oai-session-id"]
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
-        self.session = requests.Session(**proxy_settings.build_session_kwargs(
+        self.session = install_local_retry(requests.Session(**proxy_settings.build_session_kwargs(
             impersonate=self.fp["impersonate"],
             verify=True,
-        ))
+        )))
         self.session.headers.update({
             "User-Agent": self.user_agent,
             "Origin": self.base_url,

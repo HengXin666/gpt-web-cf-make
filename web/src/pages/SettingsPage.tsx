@@ -284,6 +284,9 @@ export default function SettingsPage() {
                 <Field label="失败重试账号数" desc="遇到 401、429、5xx 时会换账号重试；数量超过账号池时会从头循环。">
                   <InputNumber min={1} max={10} addonAfter="个" value={draft.reverse_proxy?.max_retries || 2} onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, max_retries: Number(v || 1) } })} style={{ width: "100%" }} />
                 </Field>
+                <Field label="超时后继续轮询" desc="默认关闭；开启后，图片生成轮询超时会视作当前账号失败，并继续尝试下一个可用账号。">
+                  <SettingSwitch checked={Boolean(draft.reverse_proxy?.continue_on_timeout)} onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, continue_on_timeout: v } })} />
+                </Field>
                 <Field label="记忆 API Key" desc="开启后，新建的反代 API Key 会保存明文并可在密钥列表显示；旧密钥无法反推显示。">
                   <SettingSwitch checked={Boolean(draft.reverse_proxy?.remember_keys)} onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, remember_keys: v } })} />
                 </Field>

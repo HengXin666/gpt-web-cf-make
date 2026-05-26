@@ -11,6 +11,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ..shared.http_client import request_local_retry
+
 # 默认 OAuth 配置
 AUTH_BASE = "https://auth.openai.com"
 PLATFORM_BASE = "https://platform.openai.com"
@@ -83,6 +85,16 @@ def decode_jwt_payload(token: str) -> dict[str, Any]:
         return {}
 
 
+def _open_form_request(opener: urllib.request.OpenerDirector, request: urllib.request.Request, timeout: int) -> tuple[str, int, bool]:
+    def call(index: int) -> tuple[str, int, bool]:
+        with opener.open(request, timeout=timeout + (10 if index else 0)) as response:
+            text = response.read().decode("utf-8", errors="replace")
+            status_code = response.status
+            return text, status_code, 200 <= status_code < 300
+
+    return request_local_retry(call)
+
+
 def exchange_code(
     oauth: dict[str, Any],
     code: str,
@@ -107,10 +119,7 @@ def exchange_code(
         method="POST",
     )
     try:
-        with opener.open(request, timeout=timeout) as response:
-            text = response.read().decode("utf-8", errors="replace")
-            status_code = response.status
-            ok = 200 <= status_code < 300
+        text, status_code, ok = _open_form_request(opener, request, timeout)
     except urllib.error.HTTPError as exc:
         text = exc.read().decode("utf-8", errors="replace")
         status_code = exc.code
@@ -152,10 +161,7 @@ def refresh_token(
         method="POST",
     )
     try:
-        with opener.open(request, timeout=timeout) as response:
-            text = response.read().decode("utf-8", errors="replace")
-            status_code = response.status
-            ok = 200 <= status_code < 300
+        text, status_code, ok = _open_form_request(opener, request, timeout)
     except urllib.error.HTTPError as exc:
         text = exc.read().decode("utf-8", errors="replace")
         status_code = exc.code

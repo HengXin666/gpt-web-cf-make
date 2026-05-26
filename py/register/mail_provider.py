@@ -14,7 +14,7 @@ from typing import Any, Callable, TypeVar
 
 import requests
 from curl_cffi import requests as curl_requests
-from ..shared.http_client import get_curl_http_version
+from ..shared.http_client import get_curl_http_version, install_local_retry
 
 
 from pathlib import Path as _Path
@@ -277,7 +277,7 @@ class CloudflareTempMailProvider(BaseMailProvider):
         self.domain = entry.get("domain") or []
         self.enable_random_subdomain = bool(entry.get("enable_random_subdomain", False))
         self.email_prefix = str(entry.get("email_prefix") or "").strip()
-        self.session = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
+        self.session = install_local_retry(curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version()))
 
     def _request_headers(self, extra: dict | None = None) -> dict[str, str]:
         """构建请求头 - admin_auth + custom_auth"""
@@ -347,7 +347,7 @@ class CloudflareLocalProvider(BaseMailProvider):
         self.domain = entry.get("domain") or []
         self.email_prefix = str(entry.get("email_prefix") or "").strip()
         self.receive_mailbox_jwt = str(entry.get("receive_mailbox_jwt") or "").strip()
-        self.session = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
+        self.session = install_local_retry(curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version()))
 
     def _request_headers(self, extra: dict | None = None) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "User-Agent": self.conf["user_agent"]}
@@ -414,7 +414,7 @@ class DDGMailProvider(BaseMailProvider):
         self.cf_create_path = str(entry.get("cf_create_path") or "/api/new_address").strip()
         self.cf_messages_path = str(entry.get("cf_messages_path") or "/api/mails").strip()
         self.proxy = str(conf.get("proxy") or "").strip()
-        self.session = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
+        self.session = install_local_retry(curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version()))
         if self.proxy:
             self.session.proxies = {"http": self.proxy, "https": self.proxy}
 
@@ -534,7 +534,7 @@ class CloudMailGenProvider(BaseMailProvider):
         self.domain = _normalize_string_list(entry.get("domain"))
         self.subdomain = _normalize_string_list(entry.get("subdomain"))
         self.email_prefix = str(entry.get("email_prefix") or "").strip()
-        self.session = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
+        self.session = install_local_retry(curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version()))
 
     def _request(
         self,
@@ -649,7 +649,7 @@ class TempMailLolProvider(BaseMailProvider):
         super().__init__(conf, str(entry.get("provider_ref") or ""))
         self.api_key = str(entry.get("api_key") or "").strip()
         self.domain = [str(item).strip() for item in (entry.get("domain") or []) if str(item).strip()]
-        self.session = requests.Session()
+        self.session = install_local_retry(requests.Session())
         self.session.trust_env = False
         self.session.headers.update({"User-Agent": conf["user_agent"], "Accept": "application/json", "Content-Type": "application/json"})
         if self.api_key:
@@ -708,7 +708,7 @@ class DuckMailProvider(BaseMailProvider):
         super().__init__(conf, str(entry.get("provider_ref") or ""))
         self.api_key = str(entry["api_key"]).strip()
         self.default_domain = str(entry.get("default_domain") or "duckmail.sbs").strip() or "duckmail.sbs"
-        self.session = requests.Session()
+        self.session = install_local_retry(requests.Session())
         self.session.trust_env = False
         self.session.headers.update({"User-Agent": conf["user_agent"], "Accept": "application/json", "Content-Type": "application/json"})
 
@@ -759,7 +759,7 @@ class GptMailProvider(BaseMailProvider):
         super().__init__(conf, str(entry.get("provider_ref") or ""))
         self.api_key = str(entry["api_key"]).strip()
         self.default_domain = str(entry.get("default_domain") or "").strip()
-        self.session = requests.Session()
+        self.session = install_local_retry(requests.Session())
         self.session.trust_env = False
         self.session.headers.update({"User-Agent": conf["user_agent"], "Accept": "application/json", "Content-Type": "application/json", "X-API-Key": self.api_key})
 
@@ -803,7 +803,7 @@ class MoEmailProvider(BaseMailProvider):
         else:
             self.domain = [str(raw_domains).strip()] if str(raw_domains).strip() else []
         self.expiry_time = int(entry.get("expiry_time") or 0)
-        self.session = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
+        self.session = install_local_retry(curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version()))
 
     def _request(self, method: str, path: str, params: dict | None = None, payload: dict | None = None, expected: tuple[int, ...] = (200,)):
         resp = self.session.request(method.upper(), f"{self.api_base}{path}", headers={"X-API-Key": self.api_key, "Content-Type": "application/json", "User-Agent": self.conf["user_agent"]}, params=params, json=payload, timeout=self.conf["request_timeout"], verify=False)
@@ -857,7 +857,7 @@ class InbucketMailProvider(BaseMailProvider):
         else:
             self.domain = [str(raw_domains).strip()] if str(raw_domains).strip() else []
         self.random_subdomain = bool(entry.get("random_subdomain", True))
-        self.session = requests.Session()
+        self.session = install_local_retry(requests.Session())
         self.session.trust_env = False
         self.session.headers.update({
             "User-Agent": conf["user_agent"],
@@ -958,7 +958,7 @@ class YydsMailProvider(BaseMailProvider):
         self.domain = [str(item).strip() for item in (entry.get("domain") or []) if str(item).strip()]
         self.subdomain = str(entry.get("subdomain") or "").strip()
         self.wildcard = bool(entry.get("wildcard"))
-        self.session = requests.Session()
+        self.session = install_local_retry(requests.Session())
         self.session.trust_env = False
         self.session.headers.update({"User-Agent": conf["user_agent"], "Accept": "application/json", "Content-Type": "application/json"})
 

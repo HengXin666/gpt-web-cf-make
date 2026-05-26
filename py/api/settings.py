@@ -9,7 +9,7 @@ import requests
 from fastapi import APIRouter, HTTPException
 
 from ..config_service import config_service
-from ..shared.http_client import create_session
+from ..shared.http_client import create_session, request_local_retry
 
 router = APIRouter()
 
@@ -76,7 +76,7 @@ async def upstream_models(upstream_base_url: str = ""):
     proxy = config_service.get_proxy()
     proxies = {"http": proxy, "https": proxy} if proxy else None
     try:
-        resp = requests.get(_models_url(source), timeout=20, proxies=proxies)
+        resp = request_local_retry(lambda index: requests.get(_models_url(source), timeout=20 + (10 if index else 0), proxies=proxies))
         if resp.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"upstream HTTP {resp.status_code}: {resp.text[:300]}")
         payload = resp.json()

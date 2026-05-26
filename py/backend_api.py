@@ -8,7 +8,7 @@ from typing import Any
 
 import urllib3
 from curl_cffi import requests
-from .shared.http_client import get_curl_http_version
+from .shared.http_client import get_curl_http_version, install_local_retry
 
 urllib3.disable_warnings()
 
@@ -47,7 +47,7 @@ class OpenAIBackendAPI:
         self.device_id = str(uuid.uuid4())
         self.session_id = str(uuid.uuid4())
 
-        self.session = requests.Session(impersonate="edge101", http_version=get_curl_http_version())
+        self.session = install_local_retry(requests.Session(impersonate="edge101", http_version=get_curl_http_version()))
         self.session.verify = False
         if proxy:
             self.session.proxies = {"http": proxy, "https": proxy}

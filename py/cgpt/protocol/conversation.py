@@ -12,6 +12,7 @@ from ..adapter_config import config
 from ..openai_backend_api import ImagePollTimeoutError, OpenAIBackendAPI
 from ..helper import IMAGE_MODELS, extract_image_from_message_content
 from ...config_service import config_service
+from ...shared.http_client import LOCAL_RETRY_ATTEMPTS, is_local_retryable_error, is_timeout_error
 import logging
 logger = logging.getLogger(__name__)
 
@@ -501,6 +502,7 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
     token = getattr(backend, "access_token", "")
     emitted = False
     attempts = 0
+    local_attempts = 0
     max_retries = max(1, int(config_service.get_reverse_proxy_config().get("max_retries") or 2))
     while True:
         if token:
@@ -519,6 +521,22 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
             return
         except Exception as exc:
             error_message = str(exc)
+            if token and not emitted and is_local_retryable_error(error_message) and local_attempts < LOCAL_RETRY_ATTEMPTS - 1:
+                local_attempts += 1
+                attempts -= 1
+                time.sleep(1)
+                continue
+            if token and not emitted and config.continue_on_timeout and is_timeout_error(error_message):
+                account_service.mark_text_failed(token, "text request timeout")
+                if attempts >= max_retries:
+                    raise
+                try:
+                    token = account_service.get_text_access_token(attempted_tokens)
+                except RuntimeError:
+                    token = account_service.get_text_access_token(set())
+                if token:
+                    local_attempts = 0
+                    continue
             if token and not emitted and is_token_invalid_error(error_message):
                 account_service.remove_invalid_token(token, "text_stream")
                 if attempts >= max_retries:
@@ -528,6 +546,7 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                 except RuntimeError:
                     token = account_service.get_text_access_token(set())
                 if token:
+                    local_attempts = 0
                     continue
             raise
 
@@ -620,13 +639,23 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
     emitted = False
     last_error = ""
     for index in range(1, request.n + 1):
+        attempted_tokens: set[str] = set()
+        retry_token = ""
+        local_attempts = 0
         while True:
-            try:
-                token = account_service.get_available_access_token()
-            except RuntimeError as exc:
-                if emitted:
-                    return
-                raise ImageGenerationError(str(exc) or "image generation failed") from exc
+            if retry_token:
+                token = retry_token
+                retry_token = ""
+            else:
+                try:
+                    token = account_service.get_available_access_token(attempted_tokens)
+                except RuntimeError as exc:
+                    if emitted:
+                        return
+                    raise ImageGenerationError(str(exc) or "image generation failed") from exc
+                local_attempts = 0
+            if token:
+                attempted_tokens.add(token)
 
             emitted_for_token = False
             returned_message = False
@@ -652,14 +681,28 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
                 account_service.mark_image_result(token, True)
                 break
             except ImagePollTimeoutError:
+                if config.continue_on_timeout:
+                    last_error = "image poll timeout"
+                    account_service.mark_image_result(token, False)
+                    local_attempts = 0
+                    continue
                 raise
             except ImageGenerationError:
                 account_service.mark_image_result(token, False)
                 raise
             except Exception as exc:
-                account_service.mark_image_result(token, False)
                 last_error = str(exc)
+                if not emitted_for_token and is_local_retryable_error(last_error) and local_attempts < LOCAL_RETRY_ATTEMPTS - 1:
+                    local_attempts += 1
+                    retry_token = token
+                    time.sleep(1)
+                    continue
+                if not emitted_for_token and config.continue_on_timeout and is_timeout_error(last_error):
+                    account_service.mark_image_result(token, False)
+                    local_attempts = 0
+                    continue
                 logger.warning({"event": "image_stream_fail", "request_token": token, "error": last_error})
+                account_service.mark_image_result(token, False)
                 if not emitted_for_token and is_token_invalid_error(last_error):
                     account_service.remove_invalid_token(token, "image_stream")
                     continue

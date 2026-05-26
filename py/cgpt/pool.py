@@ -128,6 +128,13 @@ class AdapterAccountService:
             self._finish_attempt(access_token, True)
             base_account_service.update_account(account_id, {"last_used_at": _now()})
 
+    def mark_text_failed(self, access_token: str, reason: str = "text request failed") -> None:
+        account = self.get_account(access_token)
+        account_id = str(account.get("id") or "")
+        if account_id:
+            self._finish_attempt(access_token, False, reason)
+            base_account_service.update_account(account_id, {"last_used_at": _now(), "refresh_error": reason})
+
     def remove_invalid_token(self, access_token: str, reason: str = "") -> None:
         account = self.get_account(access_token)
         account_id = str(account.get("id") or "")

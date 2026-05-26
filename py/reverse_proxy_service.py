@@ -19,6 +19,7 @@ from .cgpt.image_proxy import chatgpt_image_proxy
 from .cgpt.text_proxy import chatgpt_text_proxy
 from .proxy_live_service import proxy_live_service
 from .proxy_usage_service import proxy_usage_service
+from .shared.http_client import request_local_retry
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -277,14 +278,16 @@ class ReverseProxyService:
         timeout = int(self._config().get("timeout_seconds") or 120)
         proxy = config_service.get_proxy()
         proxies = {"http": proxy, "https": proxy} if proxy else None
-        return requests.request(
-            request.method,
-            self._upstream_url(path, request.scope.get("query_string") or b""),
-            headers=self._request_headers(request, str(account.get("access_token") or "")),
-            data=body if body else None,
-            timeout=timeout,
-            proxies=proxies,
-            stream=stream,
+        return request_local_retry(
+            lambda index: requests.request(
+                request.method,
+                self._upstream_url(path, request.scope.get("query_string") or b""),
+                headers=self._request_headers(request, str(account.get("access_token") or "")),
+                data=body if body else None,
+                timeout=timeout + (10 if index else 0),
+                proxies=proxies,
+                stream=stream,
+            )
         )
 
     async def proxy(self, request: Request, path: str, api_key: dict[str, Any]) -> Response:

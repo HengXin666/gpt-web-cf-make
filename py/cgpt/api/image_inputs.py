@@ -16,6 +16,7 @@ from starlette.datastructures import UploadFile
 
 from ..adapter_config import config
 from ..adapter_proxy import proxy_settings
+from ...shared.http_client import request_local_retry
 
 ImageInput = tuple[bytes, str, str]
 ImageSource = str | UploadFile | ImageInput
@@ -249,12 +250,14 @@ def _download_image_url(url: str) -> ImageInput:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=400, detail={"error": "image_url must be an http or https URL"})
     try:
-        response = requests.get(
-            source,
-            headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "chatgpt2api image fetcher"},
-            timeout=config.timeout_seconds,
-            allow_redirects=True,
-            **proxy_settings.build_session_kwargs(),
+        response = request_local_retry(
+            lambda index: requests.get(
+                source,
+                headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "chatgpt2api image fetcher"},
+                timeout=config.timeout_seconds + (10 if index else 0),
+                allow_redirects=True,
+                **proxy_settings.build_session_kwargs(),
+            )
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: {exc}"}) from exc

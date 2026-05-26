@@ -27,6 +27,10 @@ class AdapterConfig:
         return max(0.0, float(value))
 
     @property
+    def continue_on_timeout(self) -> bool:
+        return bool(config_service.get_reverse_proxy_config().get("continue_on_timeout"))
+
+    @property
     def global_system_prompt(self) -> str:
         value = config_service.get_reverse_proxy_config().get("global_system_prompt") or ""
         return str(value).strip()

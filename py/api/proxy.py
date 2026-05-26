@@ -61,6 +61,7 @@ async def proxy_status(request: Request):
         "strategy": config.get("strategy") or "round_robin",
         "timeout_seconds": int(config.get("timeout_seconds") or 120),
         "max_retries": int(config.get("max_retries") or 2),
+        "continue_on_timeout": bool(config.get("continue_on_timeout")),
         "available_accounts": len(accounts),
         "keys": len(proxy_auth_service.list_keys()),
     }

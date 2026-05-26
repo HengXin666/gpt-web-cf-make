@@ -208,6 +208,7 @@ export interface ReverseProxyConfig {
   strategy: "round_robin" | "random";
   timeout_seconds: number;
   max_retries: number;
+  continue_on_timeout: boolean;
   remember_keys: boolean;
   models: string[];
 }
@@ -220,6 +221,7 @@ export interface ProxyStatus {
   strategy: string;
   timeout_seconds: number;
   max_retries: number;
+  continue_on_timeout: boolean;
   available_accounts: number;
   keys: number;
 }
