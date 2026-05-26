@@ -35,6 +35,7 @@ export const api = {
     status?: string;
     search?: string;
     tags?: string;
+    sort?: string;
   } = {}) {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {

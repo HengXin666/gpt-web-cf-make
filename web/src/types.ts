@@ -17,6 +17,15 @@ export interface Account {
   created_at: string;
   last_refreshed_at: string;
   last_used_at: string;
+  last_chat_used_at?: string;
+  last_image_used_at?: string;
+  usage_last_used_at?: string;
+  usage_input_tokens?: number;
+  usage_cached_input_tokens?: number;
+  usage_output_tokens?: number;
+  usage_image_input_tokens?: number;
+  usage_image_output_tokens?: number;
+  usage_total_tokens?: number;
   refresh_error: string;
   tags: string[];
   notes: string;
@@ -209,6 +218,8 @@ export interface ProxyStatus {
   v1_base_url: string;
   upstream_base_url: string;
   strategy: string;
+  timeout_seconds: number;
+  max_retries: number;
   available_accounts: number;
   keys: number;
 }

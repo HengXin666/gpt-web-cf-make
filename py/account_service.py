@@ -54,10 +54,31 @@ class AccountService:
         status: str = "",
         search: str = "",
         tags: list[str] | None = None,
+        sort: str = "import_desc",
     ) -> dict[str, Any]:
         """分页查询账号列表，支持筛选和搜索"""
         with self._lock:
             items = [a.to_dict() for a in self._accounts.values()]
+
+        try:
+            from .proxy_usage_service import proxy_usage_service
+            usage_index = proxy_usage_service.account_usage_index()
+        except Exception:
+            usage_index = {}
+        empty_usage = {
+            "usage_input_tokens": 0,
+            "usage_cached_input_tokens": 0,
+            "usage_output_tokens": 0,
+            "usage_image_input_tokens": 0,
+            "usage_image_output_tokens": 0,
+            "usage_total_tokens": 0,
+            "last_image_used_at": "",
+            "last_chat_used_at": "",
+            "usage_last_used_at": "",
+        }
+        for item in items:
+            usage = usage_index.get(str(item.get("id") or "")) or usage_index.get(str(item.get("email") or "").lower()) or empty_usage
+            item.update(usage)
 
         # 状态筛选
         if status:
@@ -72,8 +93,16 @@ class AccountService:
             s = search.lower()
             items = [a for a in items if s in a.get("email", "").lower() or s in a.get("notes", "").lower()]
 
-        # 按创建时间倒序
-        items.sort(key=lambda a: a.get("created_at", ""), reverse=True)
+        sort_key = str(sort or "import_desc")
+        sort_map = {
+            "import_desc": ("created_at", True),
+            "import_asc": ("created_at", False),
+            "used_desc": ("usage_last_used_at", True),
+            "chat_used_desc": ("last_chat_used_at", True),
+            "image_used_desc": ("last_image_used_at", True),
+        }
+        key, reverse = sort_map.get(sort_key, sort_map["import_desc"])
+        items.sort(key=lambda a: str(a.get(key) or ""), reverse=reverse)
 
         total = len(items)
         total_pages = max(1, (total + page_size - 1) // page_size)
@@ -134,7 +163,7 @@ class AccountService:
                     skipped += 1
                     continue
 
-                account = Account.from_dict({**item, "id": _new_id()})
+                account = Account.from_dict({**item, "id": _new_id(), "created_at": _now()})
                 self._accounts[account.id] = account
                 if email:
                     existing_emails.add(email)

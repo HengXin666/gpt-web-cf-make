@@ -155,7 +155,7 @@ class OpenAIBackendAPI:
 
     def _get_me(self) -> Dict[str, Any]:
         path = "/backend-api/me"
-        response = self.session.get(self.base_url + path, headers=self._headers(path), timeout=20)
+        response = self.session.get(self.base_url + path, headers=self._headers(path), timeout=config.timeout_seconds)
         if response.status_code != 200:
             if response.status_code == 401:
                 raise InvalidAccessTokenError(f"{path} failed: HTTP {response.status_code}")
@@ -173,7 +173,7 @@ class OpenAIBackendAPI:
                 "conversation_id": None,
                 "timezone_offset_min": -480,
             },
-            timeout=20,
+            timeout=config.timeout_seconds,
         )
         if response.status_code != 200:
             if response.status_code == 401:
@@ -184,7 +184,7 @@ class OpenAIBackendAPI:
     def _get_default_account(self) -> Dict[str, Any]:
         route = "/backend-api/accounts/check/v4-2023-04-27"
         response = self.session.get(self.base_url + route + "?timezone_offset_min=-480", headers=self._headers(route),
-                                    timeout=20)
+                                    timeout=config.timeout_seconds)
         if response.status_code != 200:
             if response.status_code == 401:
                 raise InvalidAccessTokenError(f"{route} failed: HTTP {response.status_code}")
@@ -451,7 +451,7 @@ class OpenAIBackendAPI:
             self.base_url + path,
             headers=self._image_headers(path, requirements),
             json=payload,
-            timeout=60,
+            timeout=config.timeout_seconds,
         )
         ensure_ok(response, path)
         return response.json().get("conduit_token", "")
@@ -493,7 +493,7 @@ class OpenAIBackendAPI:
             headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
             json={"file_name": file_name, "file_size": len(data), "use_case": "multimodal", "width": width,
                   "height": height},
-            timeout=60,
+            timeout=config.timeout_seconds,
         )
         ensure_ok(response, path)
         upload_meta = response.json()
@@ -511,7 +511,7 @@ class OpenAIBackendAPI:
                 "Accept-Language": "en-US,en;q=0.8",
             },
             data=data,
-            timeout=120,
+            timeout=config.timeout_seconds,
         )
         ensure_ok(response, "image_upload")
         path = f"/backend-api/files/{upload_meta['file_id']}/uploaded"
@@ -519,7 +519,7 @@ class OpenAIBackendAPI:
             self.base_url + path,
             headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
             data="{}",
-            timeout=60,
+            timeout=config.timeout_seconds,
         )
         ensure_ok(response, path)
         return {
@@ -598,7 +598,7 @@ class OpenAIBackendAPI:
             self.base_url + path,
             headers=self._image_headers(path, requirements, conduit_token, "text/event-stream"),
             json=payload,
-            timeout=300,
+            timeout=config.timeout_seconds,
             stream=True,
         )
         ensure_ok(response, path)
@@ -608,7 +608,7 @@ class OpenAIBackendAPI:
         """获取完整 conversation 详情。"""
         path = f"/backend-api/conversation/{conversation_id}"
         response = self.session.get(self.base_url + path, headers=self._headers(path, {"Accept": "application/json"}),
-                                    timeout=60)
+                                    timeout=config.timeout_seconds)
         ensure_ok(response, path)
         return response.json()
 
@@ -756,7 +756,7 @@ class OpenAIBackendAPI:
         """获取文件下载地址。"""
         path = f"/backend-api/files/{file_id}/download"
         response = self.session.get(self.base_url + path, headers=self._headers(path, {"Accept": "application/json"}),
-                                    timeout=60)
+                                    timeout=config.timeout_seconds)
         ensure_ok(response, path)
         data = response.json()
         return data.get("download_url") or data.get("url") or ""
@@ -765,7 +765,7 @@ class OpenAIBackendAPI:
         """通过 conversation 附件接口获取下载地址。"""
         path = f"/backend-api/conversation/{conversation_id}/attachment/{attachment_id}/download"
         response = self.session.get(self.base_url + path, headers=self._headers(path, {"Accept": "application/json"}),
-                                    timeout=60)
+                                    timeout=config.timeout_seconds)
         ensure_ok(response, path)
         data = response.json()
         return data.get("download_url") or data.get("url") or ""
@@ -862,7 +862,7 @@ class OpenAIBackendAPI:
     def download_image_bytes(self, urls: list[str]) -> list[bytes]:
         images = []
         for url in urls:
-            response = self.session.get(url, timeout=120)
+            response = self.session.get(url, timeout=config.timeout_seconds)
             ensure_ok(response, "image_download")
             images.append(response.content)
         return images
@@ -889,7 +889,7 @@ class OpenAIBackendAPI:
             self.base_url + path,
             headers=self._conversation_headers(path, requirements),
             json=payload,
-            timeout=300,
+            timeout=config.timeout_seconds,
             stream=True,
         )
         ensure_ok(response, path)
@@ -921,7 +921,7 @@ class OpenAIBackendAPI:
         response = self.session.get(
             self.base_url + "/",
             headers=self._bootstrap_headers(),
-            timeout=30,
+            timeout=config.timeout_seconds,
         )
         ensure_ok(response, "bootstrap")
         self.pow_script_sources, self.pow_data_build = parse_pow_resources(response.text)
@@ -937,7 +937,7 @@ class OpenAIBackendAPI:
             self.base_url + path,
             headers=self._headers(path, {"Content-Type": "application/json"}),
             json=body,
-            timeout=30,
+            timeout=config.timeout_seconds,
         )
         ensure_ok(response, context)
         requirements = self._build_requirements(response.json(), "" if self.access_token else body["p"])
@@ -962,7 +962,7 @@ class OpenAIBackendAPI:
         response = self.session.get(
             self.base_url + path,
             headers=self._headers(route),
-            timeout=30,
+            timeout=config.timeout_seconds,
         )
         ensure_ok(response, context)
         data = []

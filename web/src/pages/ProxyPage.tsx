@@ -268,6 +268,8 @@ export default function ProxyPage() {
         <Card className="surface"><Statistic title="API Key" value={status?.keys || 0} /></Card>
         <Card className="surface"><Statistic title="请求中" value={usage?.running || 0} /></Card>
         <Card className="surface"><Statistic title="成功请求" value={usage?.success || 0} /></Card>
+        <Card className="surface"><Statistic title="超时时间" value={status?.timeout_seconds || 0} suffix="秒" /></Card>
+        <Card className="surface"><Statistic title="重试账号" value={status?.max_retries || 0} suffix="个" /></Card>
         <Card className="surface"><Statistic title="Token 总量" value={usage?.total_tokens || 0} /></Card>
         <Card className="surface"><Statistic title="估算成本" value={formatUsd(usage?.total_cost_usd)} /></Card>
       </div>

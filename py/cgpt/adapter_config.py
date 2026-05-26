@@ -7,8 +7,13 @@ from ..config_service import config_service
 
 class AdapterConfig:
     @property
+    def timeout_seconds(self) -> int:
+        value = config_service.get_reverse_proxy_config().get("timeout_seconds") or 120
+        return max(5, int(value))
+
+    @property
     def image_poll_timeout_secs(self) -> int:
-        value = (config_service.get_reverse_proxy_config().get("image_poll_timeout_secs") or 120)
+        value = (config_service.get_reverse_proxy_config().get("image_poll_timeout_secs") or self.timeout_seconds)
         return max(1, int(value))
 
     @property

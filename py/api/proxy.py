@@ -59,6 +59,8 @@ async def proxy_status(request: Request):
         "v1_base_url": f"{base_url}/v1",
         "upstream_base_url": config.get("upstream_base_url") or "https://api.openai.com",
         "strategy": config.get("strategy") or "round_robin",
+        "timeout_seconds": int(config.get("timeout_seconds") or 120),
+        "max_retries": int(config.get("max_retries") or 2),
         "available_accounts": len(accounts),
         "keys": len(proxy_auth_service.list_keys()),
     }

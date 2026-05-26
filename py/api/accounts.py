@@ -33,10 +33,11 @@ async def list_accounts(
     status: str = Query(""),
     search: str = Query(""),
     tags: str = Query(""),
+    sort: str = Query("import_desc"),
 ):
     """分页查询账号列表"""
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-    return account_service.list_accounts(page=page, page_size=page_size, status=status, search=search, tags=tag_list)
+    return account_service.list_accounts(page=page, page_size=page_size, status=status, search=search, tags=tag_list, sort=sort)
 
 
 @router.get("/api/accounts/stats")

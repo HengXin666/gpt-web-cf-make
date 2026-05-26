@@ -278,6 +278,48 @@ class ProxyUsageService:
             ],
         }
 
+    def account_usage_index(self) -> dict[str, dict[str, Any]]:
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(account_id, ''), 'unknown') AS account_id,
+                        COALESCE(NULLIF(account_email, ''), '未知账号') AS account_email,
+                        SUM(input_tokens) AS input_tokens,
+                        SUM(cached_input_tokens) AS cached_input_tokens,
+                        SUM(output_tokens) AS output_tokens,
+                        SUM(image_input_tokens) AS image_input_tokens,
+                        SUM(image_output_tokens) AS image_output_tokens,
+                        SUM(total_tokens) AS total_tokens,
+                        MAX(CASE WHEN path LIKE '/v1/images/%' OR LOWER(model) LIKE '%image%' THEN time ELSE '' END) AS last_image_used_at,
+                        MAX(CASE WHEN path NOT LIKE '/v1/images/%' AND LOWER(model) NOT LIKE '%image%' THEN time ELSE '' END) AS last_chat_used_at,
+                        MAX(time) AS usage_last_used_at
+                    FROM proxy_usage
+                    GROUP BY account_id, account_email
+                    """
+                ).fetchall()
+        result: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            item = {
+                "usage_input_tokens": int(row[2] or 0),
+                "usage_cached_input_tokens": int(row[3] or 0),
+                "usage_output_tokens": int(row[4] or 0),
+                "usage_image_input_tokens": int(row[5] or 0),
+                "usage_image_output_tokens": int(row[6] or 0),
+                "usage_total_tokens": int(row[7] or 0),
+                "last_image_used_at": str(row[8] or ""),
+                "last_chat_used_at": str(row[9] or ""),
+                "usage_last_used_at": str(row[10] or ""),
+            }
+            account_id = str(row[0] or "")
+            account_email = str(row[1] or "")
+            if account_id and account_id != "unknown":
+                result[account_id] = item
+            if account_email and account_email != "未知账号":
+                result[account_email.lower()] = item
+        return result
+
     def series(self, minutes: int = 240, bucket_seconds: int = 60) -> dict[str, Any]:
         minutes = max(5, min(24 * 60, int(minutes or 240)))
         bucket_seconds = max(30, min(3600, int(bucket_seconds or 60)))

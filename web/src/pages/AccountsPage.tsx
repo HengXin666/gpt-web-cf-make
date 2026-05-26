@@ -63,6 +63,7 @@ export default function AccountsPage() {
   const [exportText, setExportText] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [sortKey, setSortKey] = useState("import_desc");
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [activeAction, setActiveAction] = useState("");
   const [refreshLogs, setRefreshLogs] = useState<RefreshJobEvent[]>([]);
@@ -84,11 +85,11 @@ export default function AccountsPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      useAccountStore.setState({ search, statusFilter, page: 1 });
-      store.loadAccounts({ page: 1, search, status: statusFilter });
+      useAccountStore.setState({ search, statusFilter, sort: sortKey, page: 1 });
+      store.loadAccounts({ page: 1, search, status: statusFilter, sort: sortKey });
     }, 320);
     return () => window.clearTimeout(timer);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, sortKey]);
 
   useEffect(() => {
     store.setSelected(selectedRowKeys);
@@ -102,7 +103,7 @@ export default function AccountsPage() {
   }, [logsOpen]);
 
   const refresh = async () => {
-    await Promise.all([store.loadAccounts(), store.loadStats()]);
+    await Promise.all([store.loadAccounts({ sort: sortKey }), store.loadStats()]);
   };
 
   const withAction = async (key: string, run: () => Promise<void>) => {
@@ -263,9 +264,33 @@ export default function AccountsPage() {
         </div>
       ),
     },
+    {
+      title: "Token 消耗",
+      key: "usage_total_tokens",
+      width: 132,
+      align: "right",
+      render: (_, record) => (
+        <div>
+          <strong className="code-text">{record.usage_total_tokens || 0}</strong>
+          <div className="mt-1 text-[11px] text-slate-400">入 {record.usage_input_tokens || 0} / 出 {record.usage_output_tokens || 0}</div>
+        </div>
+      ),
+    },
     { title: "计划", dataIndex: "plan_type", key: "plan_type", width: 90, render: (v: string) => <span className="text-sm">{v || "-"}</span> },
     { title: "Refresh Token", dataIndex: "refresh_token", key: "refresh_token", width: 140, align: "center", render: (v: string) => <TokenPill ok={Boolean(v)} /> },
     { title: "Token 到期", dataIndex: "access_token", key: "token_expiry", width: 150, render: (v: string) => <span className="text-xs">{jwtExpiry(v)}</span> },
+    { title: "导入时间", dataIndex: "created_at", key: "created_at", width: 150, render: (v: string) => <span className="text-xs">{formatDate(v)}</span> },
+    {
+      title: "最近使用",
+      key: "usage_used_at",
+      width: 170,
+      render: (_, record) => (
+        <div className="text-xs">
+          <div>对话 {formatDate(record.last_chat_used_at)}</div>
+          <div className="mt-1 text-slate-400">图片 {formatDate(record.last_image_used_at)}</div>
+        </div>
+      ),
+    },
     { title: "最后刷新", dataIndex: "last_refreshed_at", key: "last_refreshed_at", width: 150, render: (v: string) => <span className="text-xs">{formatDate(v)}</span> },
     {
       title: "操作",
@@ -329,6 +354,18 @@ export default function AccountsPage() {
               { value: "disabled", label: "禁用" },
             ]}
           />
+          <Select
+            value={sortKey}
+            onChange={setSortKey}
+            style={{ width: 180 }}
+            options={[
+              { value: "import_desc", label: "最近导入" },
+              { value: "import_asc", label: "最久导入" },
+              { value: "used_desc", label: "最近被使用" },
+              { value: "chat_used_desc", label: "最近对话使用" },
+              { value: "image_used_desc", label: "最近图片使用" },
+            ]}
+          />
           <Button icon={<RefreshCcw className="size-4" />} onClick={refresh} loading={loading}>刷新列表</Button>
           <div className="toolbar-spacer" />
           <span className="text-sm text-slate-500">共 {total} 个账号</span>
@@ -359,9 +396,9 @@ export default function AccountsPage() {
             showTotal: (t) => `共 ${t} 个`,
             showSizeChanger: true,
             pageSizeOptions: [20, 50, 100, 200],
-            onChange: (p, ps) => store.loadAccounts({ page: p, page_size: ps, search, status: statusFilter }),
+            onChange: (p, ps) => store.loadAccounts({ page: p, page_size: ps, search, status: statusFilter, sort: sortKey }),
           }}
-          scroll={{ x: 1120, y: tableScrollY }}
+          scroll={{ x: 1480, y: tableScrollY }}
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={search || statusFilter ? "没有匹配的账号" : "暂无账号，先导入或启动注册机"} /> }}
         />
       </Card>

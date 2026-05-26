@@ -13,12 +13,14 @@ interface AccountStore {
   loading: boolean;
   statusFilter: string;
   search: string;
+  sort: string;
 
   loadAccounts: (params?: {
     page?: number;
     page_size?: number;
     status?: string;
     search?: string;
+    sort?: string;
   }) => Promise<void>;
   loadStats: () => Promise<void>;
   setSelected: (ids: string[]) => void;
@@ -46,6 +48,7 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
   loading: false,
   statusFilter: "",
   search: "",
+  sort: "import_desc",
 
   loadAccounts: async (params = {}) => {
     set({ loading: true });
@@ -55,6 +58,7 @@ export const useAccountStore = create<AccountStore>((set, get) => ({
         page_size: params.page_size ?? get().pageSize,
         status: params.status ?? get().statusFilter,
         search: params.search ?? get().search,
+        sort: params.sort ?? get().sort,
       });
       set({
         accounts: data.items,
