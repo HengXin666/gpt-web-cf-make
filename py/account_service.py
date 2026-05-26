@@ -204,6 +204,7 @@ class AccountService:
         """刷新单个账号配额和状态 - 调用 OpenAI Backend API"""
         from .backend_api import OpenAIBackendAPI, InvalidAccessTokenError
         from .config_service import config_service
+        from .shared.http_client import is_local_retryable_error, local_retryable_message
 
         account = self.get_account(account_id)
         if not account:
@@ -213,25 +214,40 @@ class AccountService:
         if not access_token:
             return {"ok": False, "error": "no access_token"}
 
-        try:
-            proxy = config_service.get_proxy()
-            api_client = OpenAIBackendAPI(access_token, proxy)
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
             try:
-                info = api_client.get_user_info()
-            finally:
-                api_client.close()
+                proxy = config_service.get_proxy()
+                api_client = OpenAIBackendAPI(access_token, proxy)
+                try:
+                    info = api_client.get_user_info()
+                finally:
+                    api_client.close()
 
-            # 合并远程信息到本地账号
-            updates = {k: v for k, v in info.items() if v is not None and v != ""}
-            self.update_account(account_id, updates)
-            return {"ok": True, "account_id": account_id, "info": info}
+                # 合并远程信息到本地账号
+                updates = {k: v for k, v in info.items() if v is not None and v != ""}
+                self.update_account(account_id, updates)
+                return {"ok": True, "account_id": account_id, "info": info, "attempts": attempt}
 
-        except InvalidAccessTokenError:
-            self.update_account(account_id, {"status": "abnormal", "quota": 0})
-            return {"ok": False, "error": "access_token invalid (401)"}
-        except Exception as exc:
-            self.update_account(account_id, {"status": "abnormal", "quota": 0, "refresh_error": str(exc)[:200]})
-            return {"ok": False, "error": str(exc)[:200]}
+            except InvalidAccessTokenError:
+                message = (
+                    "access_token invalid (401)：ChatGPT 后端拒绝当前 access_token。"
+                    "常见原因是 access_token 已过期、被撤销、账号会话失效，或导入的 token 不属于 ChatGPT Web。"
+                    "建议先刷新 Token；如果刷新后仍失败，需要重新登录并重新导入该账号。"
+                )
+                self.update_account(account_id, {"status": "abnormal", "quota": 0, "refresh_error": message})
+                return {"ok": False, "error": message, "error_group": "access_token invalid (401)", "retryable": False}
+            except Exception as exc:
+                if is_local_retryable_error(exc):
+                    if attempt < max_attempts:
+                        continue
+                    message = local_retryable_message(exc, max_attempts)
+                    self.update_account(account_id, {"refresh_error": message})
+                    return {"ok": False, "error": message, "error_group": "本地网络或代理错误", "retryable": True}
+                self.update_account(account_id, {"status": "abnormal", "quota": 0, "refresh_error": str(exc)[:200]})
+                return {"ok": False, "error": str(exc)[:200], "error_group": "账号刷新失败", "retryable": False}
+
+        return {"ok": False, "error": "quota refresh failed", "error_group": "账号刷新失败", "retryable": False}
 
     def batch_refresh_quotas(self, ids: list[str]) -> dict[str, Any]:
         """批量刷新账号配额 - 使用 ThreadPoolExecutor 并发"""

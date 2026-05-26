@@ -46,14 +46,46 @@ class ProxyUsageService:
                 total_tokens INTEGER,
                 cost_usd REAL,
                 estimated INTEGER,
+                account_id TEXT,
+                account_email TEXT,
                 payload_json TEXT
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_usage_time ON proxy_usage(time)")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(proxy_usage)").fetchall()}
+        if "account_id" not in columns:
+            conn.execute("ALTER TABLE proxy_usage ADD COLUMN account_id TEXT")
+        if "account_email" not in columns:
+            conn.execute("ALTER TABLE proxy_usage ADD COLUMN account_email TEXT")
         if "payload_json" not in columns:
             conn.execute("ALTER TABLE proxy_usage ADD COLUMN payload_json TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_usage_account ON proxy_usage(account_id, account_email)")
+        self._backfill_account_columns(conn)
         return conn
+
+    @staticmethod
+    def _backfill_account_columns(conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT request_id, payload_json FROM proxy_usage
+            WHERE (account_id IS NULL OR account_id = '')
+              AND payload_json IS NOT NULL
+            LIMIT 1000
+            """
+        ).fetchall()
+        for request_id, payload_json in rows:
+            try:
+                payload = json.loads(payload_json or "{}")
+            except Exception:
+                continue
+            account = payload.get("account") if isinstance(payload, dict) and isinstance(payload.get("account"), dict) else {}
+            account_id = str(account.get("id") or "")
+            account_email = str(account.get("email") or "")
+            if account_id or account_email:
+                conn.execute(
+                    "UPDATE proxy_usage SET account_id = ?, account_email = ? WHERE request_id = ?",
+                    (account_id, account_email, request_id),
+                )
 
     @staticmethod
     def _parse_time(value: str) -> datetime:
@@ -72,14 +104,16 @@ class ProxyUsageService:
         image_input_tokens = int(cost.get("image_input_tokens") or 0)
         image_output_tokens = int(cost.get("image_output_tokens") or 0)
         total_tokens = input_tokens + output_tokens + image_input_tokens + image_output_tokens
+        account = payload.get("account") if isinstance(payload.get("account"), dict) else {}
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO proxy_usage (
                     request_id, time, api_key_name, model, path, success,
                     input_tokens, cached_input_tokens, output_tokens, image_input_tokens,
-                    image_output_tokens, total_tokens, cost_usd, estimated, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    image_output_tokens, total_tokens, cost_usd, estimated,
+                    account_id, account_email, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(payload.get("request_id") or ""),
@@ -96,6 +130,8 @@ class ProxyUsageService:
                     total_tokens,
                     float(cost.get("total_cost_usd") or 0),
                     1 if cost.get("estimated") else 0,
+                    str(account.get("id") or ""),
+                    str(account.get("email") or ""),
                     json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
                 ),
             )
@@ -187,6 +223,59 @@ class ProxyUsageService:
             "by_model": [{"model": model, **data} for model, data in by_model.items()],
             "active": proxy_live_service.active(),
             "recent": records[:100],
+            "by_account": self.account_summary(limit)["items"],
+        }
+
+    def account_summary(self, limit: int = 5000) -> dict[str, Any]:
+        limit = max(1, min(50000, int(limit or 5000)))
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(account_id, ''), 'unknown') AS account_id,
+                        COALESCE(NULLIF(account_email, ''), '未知账号') AS account_email,
+                        COUNT(*) AS requests,
+                        SUM(CASE WHEN success THEN 1 ELSE 0 END) AS success,
+                        SUM(CASE WHEN success THEN 0 ELSE 1 END) AS failed,
+                        SUM(input_tokens) AS input_tokens,
+                        SUM(cached_input_tokens) AS cached_input_tokens,
+                        SUM(output_tokens) AS output_tokens,
+                        SUM(image_input_tokens) AS image_input_tokens,
+                        SUM(image_output_tokens) AS image_output_tokens,
+                        SUM(total_tokens) AS total_tokens,
+                        SUM(cost_usd) AS cost_usd,
+                        MAX(time) AS last_used_at
+                    FROM (
+                        SELECT * FROM proxy_usage
+                        ORDER BY time DESC
+                        LIMIT ?
+                    )
+                    GROUP BY account_id, account_email
+                    ORDER BY total_tokens DESC, requests DESC
+                    """,
+                    (limit,),
+                ).fetchall()
+        return {
+            "limit": limit,
+            "items": [
+                {
+                    "account_id": str(row[0] or ""),
+                    "account_email": str(row[1] or ""),
+                    "requests": int(row[2] or 0),
+                    "success": int(row[3] or 0),
+                    "failed": int(row[4] or 0),
+                    "input_tokens": int(row[5] or 0),
+                    "cached_input_tokens": int(row[6] or 0),
+                    "output_tokens": int(row[7] or 0),
+                    "image_input_tokens": int(row[8] or 0),
+                    "image_output_tokens": int(row[9] or 0),
+                    "total_tokens": int(row[10] or 0),
+                    "cost_usd": round(float(row[11] or 0), 8),
+                    "last_used_at": str(row[12] or ""),
+                }
+                for row in rows
+            ],
         }
 
     def series(self, minutes: int = 240, bucket_seconds: int = 60) -> dict[str, Any]:

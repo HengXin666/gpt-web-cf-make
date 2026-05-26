@@ -71,9 +71,20 @@ export interface RefreshJobEvent {
   quota?: number;
   plan_type?: string;
   error?: string;
+  error_group?: string;
+  retryable?: boolean;
   refreshed?: number;
   failed?: number;
   failed_ids?: string[];
+  failed_items?: RefreshJobFailure[];
+}
+
+export interface RefreshJobFailure {
+  id: string;
+  email: string;
+  error: string;
+  error_group: string;
+  retryable: boolean;
 }
 
 export interface RegisterConfig {
@@ -268,8 +279,30 @@ export interface ProxyUsageSummary {
   total_cost_usd: number;
   by_key: Array<{ name: string; requests: number; success: number; failed: number; tokens: number }>;
   by_model: Array<{ model: string; requests: number; success: number; failed: number; tokens: number }>;
+  by_account?: ProxyUsageAccount[];
   active: ProxyUsageRecord[];
   recent: ProxyUsageRecord[];
+}
+
+export interface ProxyUsageAccount {
+  account_id: string;
+  account_email: string;
+  requests: number;
+  success: number;
+  failed: number;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  image_input_tokens: number;
+  image_output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  last_used_at: string;
+}
+
+export interface ProxyUsageAccountSummary {
+  limit: number;
+  items: ProxyUsageAccount[];
 }
 
 export interface ProxyUsageCost {

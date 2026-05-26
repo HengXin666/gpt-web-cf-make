@@ -162,6 +162,10 @@ export const api = {
     return request<import("./types").ProxyUsageSummary>("GET", `/api/proxy/usage?limit=${limit}`);
   },
 
+  getProxyUsageAccounts(limit = 5000) {
+    return request<import("./types").ProxyUsageAccountSummary>("GET", `/api/proxy/usage-accounts?limit=${limit}`);
+  },
+
   getProxyUsageSeries(minutes = 240, bucketSeconds = 60) {
     return request<import("./types").ProxyUsageSeries>("GET", `/api/proxy/usage-series?minutes=${minutes}&bucket_seconds=${bucketSeconds}`);
   },

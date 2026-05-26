@@ -5,12 +5,42 @@ from __future__ import annotations
 from typing import Any
 
 
+LOCAL_RETRYABLE_ERROR_KEYWORDS = (
+    "curl:",
+    "failed to perform",
+    "connection closed",
+    "connection reset",
+    "connection refused",
+    "connection aborted",
+    "remote end closed",
+    "empty reply",
+    "timed out",
+    "timeout",
+    "temporary failure",
+    "name or service not known",
+    "proxy",
+    "tls",
+    "ssl",
+    "eof",
+)
+
+
 class UpstreamError(RuntimeError):
     """上游请求错误"""
     def __init__(self, message: str, status_code: int = 0, body: str = ""):
         super().__init__(message)
         self.status_code = status_code
         self.body = body
+
+
+def is_local_retryable_error(error: object) -> bool:
+    text = str(error or "").lower()
+    return any(keyword in text for keyword in LOCAL_RETRYABLE_ERROR_KEYWORDS)
+
+
+def local_retryable_message(error: object, attempts: int) -> str:
+    detail = str(error or "local request failed")
+    return f"本地网络或代理错误，已自动重试 {attempts} 次后仍失败：{detail}"
 
 
 def create_session(proxy: str = "") -> Any:

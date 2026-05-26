@@ -92,6 +92,11 @@ async def proxy_usage(limit: int = 5000):
     return proxy_usage_service.summary(limit)
 
 
+@router.get("/api/proxy/usage-accounts")
+async def proxy_usage_accounts(limit: int = 5000):
+    return proxy_usage_service.account_summary(limit)
+
+
 @router.get("/api/proxy/usage-series")
 async def proxy_usage_series(minutes: int = 240, bucket_seconds: int = 60):
     return proxy_usage_service.series(minutes, bucket_seconds)

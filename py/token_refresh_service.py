@@ -11,6 +11,7 @@ from typing import Any
 from .config_service import config_service
 from .account_service import account_service
 from .register.oauth import refresh_token, decode_jwt_payload
+from .shared.http_client import is_local_retryable_error, local_retryable_message
 from .shared.models import _now
 
 
@@ -44,22 +45,47 @@ class TokenRefreshService:
         client_id = str(account.get("oauth_client_id") or oauth.get("client_id") or "")
         scope = str(account.get("oauth_scope") or oauth.get("scope") or "openid profile email")
 
-        try:
-            result = refresh_token(
-                oauth=oauth,
-                refresh_token_value=r_token,
-                client_id=client_id,
-                scope=scope,
-                proxy=proxy,
-            )
-        except Exception as exc:
-            error_msg = str(exc)
-            account_service.update_account(account_id, {
-                "status": "abnormal",
-                "refresh_error": error_msg,
-                "last_refreshed_at": _now(),
-            })
-            return {"ok": False, "error": error_msg}
+        max_attempts = 3
+        result: dict[str, Any] = {}
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = refresh_token(
+                    oauth=oauth,
+                    refresh_token_value=r_token,
+                    client_id=client_id,
+                    scope=scope,
+                    proxy=proxy,
+                )
+                if not result.get("ok") or result.get("status_code") != 200:
+                    body = result.get("body", {})
+                    error_msg = str(body.get("error_description") or body.get("error") or json.dumps(body)[:200])
+                    if is_local_retryable_error(error_msg):
+                        if attempt < max_attempts:
+                            continue
+                        error_msg = local_retryable_message(error_msg, max_attempts)
+                        account_service.update_account(account_id, {
+                            "refresh_error": error_msg,
+                            "last_refreshed_at": _now(),
+                        })
+                        return {"ok": False, "error": error_msg, "error_group": "本地网络或代理错误", "retryable": True}
+                break
+            except Exception as exc:
+                if is_local_retryable_error(exc):
+                    if attempt < max_attempts:
+                        continue
+                    error_msg = local_retryable_message(exc, max_attempts)
+                    account_service.update_account(account_id, {
+                        "refresh_error": error_msg,
+                        "last_refreshed_at": _now(),
+                    })
+                    return {"ok": False, "error": error_msg, "error_group": "本地网络或代理错误", "retryable": True}
+                error_msg = str(exc)
+                account_service.update_account(account_id, {
+                    "status": "abnormal",
+                    "refresh_error": error_msg,
+                    "last_refreshed_at": _now(),
+                })
+                return {"ok": False, "error": error_msg, "error_group": "Token 刷新异常", "retryable": False}
 
         if not result.get("ok") or result.get("status_code") != 200:
             body = result.get("body", {})
@@ -71,12 +97,12 @@ class TokenRefreshService:
                     "refresh_error": error_msg,
                     "last_refreshed_at": _now(),
                 })
-                return {"ok": False, "error": error_msg}
+                return {"ok": False, "error": error_msg, "error_group": "refresh_token invalid/reused", "retryable": False}
             account_service.update_account(account_id, {
                 "refresh_error": error_msg,
                 "last_refreshed_at": _now(),
             })
-            return {"ok": False, "error": error_msg}
+            return {"ok": False, "error": error_msg, "error_group": "Token 刷新失败", "retryable": False}
 
         body = result.get("body", {})
         new_access_token = str(body.get("access_token") or "").strip()

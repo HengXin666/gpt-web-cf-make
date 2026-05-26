@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 from .account_service import account_service
+from .shared.http_client import is_local_retryable_error
 from .token_refresh_service import token_refresh_service
 
 
@@ -52,6 +53,7 @@ class RefreshJobService:
         ok_count = 0
         fail_count = 0
         failed_ids: list[str] = []
+        failed_items: list[dict[str, Any]] = []
 
         self._push(job_id, {"type": "start", "action": action, "total": len(ids)})
         for index, account_id in enumerate(ids, start=1):
@@ -78,8 +80,18 @@ class RefreshJobService:
                         "plan_type": updated.get("plan_type"),
                     })
                 else:
+                    error = str(result.get("error") or "unknown")
+                    error_group = str(result.get("error_group") or self._error_group(error))
+                    retryable = bool(result.get("retryable") or is_local_retryable_error(error))
                     fail_count += 1
                     failed_ids.append(account_id)
+                    failed_items.append({
+                        "id": account_id,
+                        "email": email,
+                        "error": error,
+                        "error_group": error_group,
+                        "retryable": retryable,
+                    })
                     self._push(job_id, {
                         "type": "progress",
                         "status": "failed",
@@ -87,11 +99,23 @@ class RefreshJobService:
                         "total": len(ids),
                         "id": account_id,
                         "email": email,
-                        "error": str(result.get("error") or "unknown"),
+                        "error": error,
+                        "error_group": error_group,
+                        "retryable": retryable,
                     })
             except Exception as exc:
+                error = str(exc)
+                error_group = self._error_group(error)
+                retryable = is_local_retryable_error(error)
                 fail_count += 1
                 failed_ids.append(account_id)
+                failed_items.append({
+                    "id": account_id,
+                    "email": email,
+                    "error": error,
+                    "error_group": error_group,
+                    "retryable": retryable,
+                })
                 self._push(job_id, {
                     "type": "progress",
                     "status": "failed",
@@ -99,14 +123,28 @@ class RefreshJobService:
                     "total": len(ids),
                     "id": account_id,
                     "email": email,
-                    "error": str(exc),
+                    "error": error,
+                    "error_group": error_group,
+                    "retryable": retryable,
                 })
 
-        done = {"type": "done", "action": action, "refreshed": ok_count, "failed": fail_count, "failed_ids": failed_ids}
+        done = {"type": "done", "action": action, "refreshed": ok_count, "failed": fail_count, "failed_ids": failed_ids, "failed_items": failed_items}
         self._push(job_id, done)
         with self._lock:
             if job_id in self._jobs:
                 self._jobs[job_id]["done"] = True
+
+    @staticmethod
+    def _error_group(error: str) -> str:
+        text = str(error or "")
+        lower = text.lower()
+        if "access_token invalid" in lower or "http 401" in lower:
+            return "access_token invalid (401)"
+        if "refresh_token_reused" in lower or "invalid_grant" in lower:
+            return "refresh_token invalid/reused"
+        if is_local_retryable_error(text):
+            return "本地网络或代理错误"
+        return text[:80] or "未知错误"
 
     def events(self, job_id: str):
         with self._lock:

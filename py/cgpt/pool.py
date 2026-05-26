@@ -13,7 +13,8 @@ from ..shared.models import _now
 class AdapterAccountService:
     def __init__(self) -> None:
         self._lock = RLock()
-        self._cursor = 0
+        self._image_cursor = 0
+        self._text_cursor = 0
         self._attempts_var: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar("cgpt_attempts", default=None)
 
     def start_attempt_tracking(self):
@@ -60,15 +61,39 @@ class AdapterAccountService:
                 attempt["error"] = "" if success else (error or attempt.get("error") or "failed")
                 return
 
-    def _candidates(self, attempted_tokens: set[str] | None = None) -> list[dict[str, Any]]:
+    @staticmethod
+    def _quota_value(account: dict[str, Any]) -> int:
+        try:
+            return int(account.get("quota") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _candidates(self, attempted_tokens: set[str] | None = None, require_image_quota: bool = False) -> list[dict[str, Any]]:
         attempted_tokens = attempted_tokens or set()
         items = []
         for item in base_account_service.list_proxy_candidates():
             token = str(item.get("access_token") or "").strip()
             if not token or token in attempted_tokens:
                 continue
+            if require_image_quota and self._quota_value(item) <= 0:
+                continue
             items.append(item)
         return items
+
+    def _get_access_token(self, attempted_tokens: set[str] | None, image: bool) -> str:
+        candidates = self._candidates(attempted_tokens, require_image_quota=image)
+        if not candidates:
+            raise RuntimeError("no available image account" if image else "no available text account")
+        with self._lock:
+            if image:
+                index = self._image_cursor % len(candidates)
+                self._image_cursor += 1
+            else:
+                index = self._text_cursor % len(candidates)
+                self._text_cursor += 1
+        account = candidates[index]
+        self._append_attempt(account)
+        return str(account.get("access_token") or "")
 
     def get_account(self, access_token: str) -> dict[str, Any]:
         token = str(access_token or "").strip()
@@ -80,18 +105,10 @@ class AdapterAccountService:
         return {}
 
     def get_available_access_token(self, attempted_tokens: set[str] | None = None) -> str:
-        candidates = self._candidates(attempted_tokens)
-        if not candidates:
-            raise RuntimeError("no available image account")
-        with self._lock:
-            index = self._cursor % len(candidates)
-            self._cursor += 1
-        account = candidates[index]
-        self._append_attempt(account)
-        return str(account.get("access_token") or "")
+        return self._get_access_token(attempted_tokens, image=True)
 
     def get_text_access_token(self, attempted_tokens: set[str] | None = None) -> str:
-        return self.get_available_access_token(attempted_tokens)
+        return self._get_access_token(attempted_tokens, image=False)
 
     def mark_image_result(self, access_token: str, success: bool) -> None:
         account = self.get_account(access_token)

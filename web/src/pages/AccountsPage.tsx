@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Button, Card, Empty, Input, Modal, Select, Space, Table, Tooltip } from "antd";
+import { App, Button, Card, Empty, Input, Modal, Select, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   Copy,
@@ -18,7 +18,7 @@ import {
 import { motion } from "framer-motion";
 import { api } from "../api";
 import { useAccountStore } from "../stores/accountStore";
-import type { Account, RefreshJobEvent } from "../types";
+import type { Account, RefreshJobEvent, RefreshJobFailure } from "../types";
 
 function jwtExpiry(accessToken: string): string {
   if (!accessToken) return "-";
@@ -67,6 +67,7 @@ export default function AccountsPage() {
   const [activeAction, setActiveAction] = useState("");
   const [refreshLogs, setRefreshLogs] = useState<RefreshJobEvent[]>([]);
   const [failedIds, setFailedIds] = useState<string[]>([]);
+  const [failedItems, setFailedItems] = useState<RefreshJobFailure[]>([]);
   const [failedAction, setFailedAction] = useState<"quota" | "token">("quota");
   const [logsOpen, setLogsOpen] = useState(true);
   const [tableScrollY, setTableScrollY] = useState(420);
@@ -121,6 +122,7 @@ export default function AccountsPage() {
     setActiveAction(`${action}-job`);
     setRefreshLogs([{ type: "start", action, total: ids.length }]);
     setFailedIds([]);
+    setFailedItems([]);
     setFailedAction(action);
     try {
       const job = await api.createRefreshJob(action, ids);
@@ -131,6 +133,7 @@ export default function AccountsPage() {
           setRefreshLogs((logs) => [data, ...logs].slice(0, 160));
           if (data.type === "done") {
             setFailedIds(data.failed_ids || []);
+            setFailedItems(data.failed_items || []);
             source.close();
             message.success(`${label}完成：${data.refreshed || 0} 成功，${data.failed || 0} 失败`);
             refresh().finally(resolve);
@@ -374,6 +377,15 @@ export default function AccountsPage() {
           </Space>
         }
       >
+        <FailureGroups
+          items={failedItems}
+          action={failedAction}
+          onSelect={(ids) => {
+            setSelectedRowKeys(ids);
+            message.success(`已选择 ${ids.length} 个账号`);
+          }}
+          onRetry={(ids) => startRefreshJob(failedAction, ids, "失败分组重试")}
+        />
         {logsOpen ? (
           <RefreshLogList logs={refreshLogs} />
         ) : (
@@ -420,6 +432,50 @@ function logText(log: RefreshJobEvent) {
   if (log.type === "progress" && log.status === "success") return `[${log.email}] 成功${log.quota !== undefined ? `，配额 ${log.quota}` : ""}${log.plan_type ? `，计划 ${log.plan_type}` : ""}`;
   if (log.type === "progress" && log.status === "failed") return `[${log.email}] 失败：${log.error || "未知错误"}`;
   return "";
+}
+
+function groupFailures(items: RefreshJobFailure[]) {
+  const grouped = new Map<string, RefreshJobFailure[]>();
+  items.forEach((item) => {
+    const key = item.error_group || item.error || "未知错误";
+    grouped.set(key, [...(grouped.get(key) || []), item]);
+  });
+  return Array.from(grouped.entries()).map(([group, groupItems]) => ({ group, items: groupItems }));
+}
+
+function FailureGroups({ items, action, onSelect, onRetry }: {
+  items: RefreshJobFailure[];
+  action: "quota" | "token";
+  onSelect: (ids: string[]) => void;
+  onRetry: (ids: string[]) => void;
+}) {
+  const groups = groupFailures(items);
+  if (groups.length === 0) return null;
+  return (
+    <div className="mb-4 space-y-3">
+      {groups.map(({ group, items: groupItems }) => {
+        const ids = groupItems.map((item) => item.id);
+        const retryable = groupItems.some((item) => item.retryable);
+        return (
+          <div key={group} className="selection-bar">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <strong className="text-sm">{group}</strong>
+                <Tag color={retryable ? "gold" : "red"}>{retryable ? "可重试" : "需处理账号"}</Tag>
+                <span className="text-sm text-slate-500">{groupItems.length} 个账号</span>
+              </div>
+              <div className="mt-1 truncate text-xs text-slate-500" title={groupItems[0]?.error}>{groupItems[0]?.error}</div>
+            </div>
+            <div className="toolbar-spacer" />
+            <Button size="small" onClick={() => onSelect(ids)}>选择本组</Button>
+            <Button size="small" type={retryable ? "primary" : "default"} onClick={() => onRetry(ids)}>
+              {action === "token" ? "重试 Token" : "重试配额"}
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function RefreshLogList({ logs }: { logs: RefreshJobEvent[] }) {

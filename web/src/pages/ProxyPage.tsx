@@ -3,7 +3,7 @@ import { App, Button, Card, Input, Modal, Space, Statistic, Switch, Table, Tag, 
 import type { ColumnsType } from "antd/es/table";
 import { BarChart3, Copy, KeyRound, Plus, RefreshCcw, Terminal, Trash2 } from "lucide-react";
 import { api } from "../api";
-import type { ProxyKey, ProxyLiveLog, ProxyStatus, ProxyUsageAttempt, ProxyUsageEvent, ProxyUsagePoint, ProxyUsageRecord, ProxyUsageSeries, ProxyUsageSummary } from "../types";
+import type { ProxyKey, ProxyLiveLog, ProxyStatus, ProxyUsageAccount, ProxyUsageAttempt, ProxyUsageEvent, ProxyUsagePoint, ProxyUsageRecord, ProxyUsageSeries, ProxyUsageSummary } from "../types";
 
 function formatDate(value?: string) {
   if (!value) return "-";
@@ -139,6 +139,7 @@ export default function ProxyPage() {
         } else if (data.type === "log" && data.log) {
           setLiveLogs((current) => mergeLogs(current, data.log as ProxyLiveLog));
         } else if (data.type === "completed") {
+          api.getProxyUsage().then(setUsage).catch(() => undefined);
           api.getProxyUsageSeries().then(setSeries).catch(() => undefined);
         }
       } catch {
@@ -238,6 +239,20 @@ export default function ProxyPage() {
     { title: "成本", dataIndex: "cost", key: "cost", width: 120, render: (value: ProxyUsageRecord["cost"]) => formatUsd(value?.total_cost_usd) },
   ];
 
+  const accountUsageColumns: ColumnsType<ProxyUsageAccount> = [
+    { title: "账号", dataIndex: "account_email", key: "account_email", render: (value: string, item) => <div><div className="code-text">{value || "-"}</div><div className="text-xs text-slate-400">{item.account_id || "-"}</div></div> },
+    { title: "请求", dataIndex: "requests", key: "requests", width: 90, align: "right" },
+    { title: "成功", dataIndex: "success", key: "success", width: 90, align: "right" },
+    { title: "失败", dataIndex: "failed", key: "failed", width: 90, align: "right" },
+    { title: "输入", dataIndex: "input_tokens", key: "input_tokens", width: 110, align: "right" },
+    { title: "缓存", dataIndex: "cached_input_tokens", key: "cached_input_tokens", width: 110, align: "right" },
+    { title: "输出", dataIndex: "output_tokens", key: "output_tokens", width: 110, align: "right" },
+    { title: "图片", key: "image_tokens", width: 110, align: "right", render: (_, item) => item.image_input_tokens + item.image_output_tokens },
+    { title: "总 Tokens", dataIndex: "total_tokens", key: "total_tokens", width: 130, align: "right" },
+    { title: "成本", dataIndex: "cost_usd", key: "cost_usd", width: 120, align: "right", render: formatUsd },
+    { title: "最后使用", dataIndex: "last_used_at", key: "last_used_at", width: 150, render: formatDate },
+  ];
+
   return (
     <div className="settings-stack">
       <div className="section-head">
@@ -288,6 +303,20 @@ export default function ProxyPage() {
         extra={<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setCreateOpen(true)}>新建 API Key</Button>}
       >
         <Table rowKey="id" columns={keyColumns} dataSource={keys} pagination={false} loading={loading} />
+      </Card>
+
+      <Card
+        className="surface"
+        title={<span className="flex items-center gap-2"><BarChart3 className="size-4 text-blue-500" />账号 Token 统计</span>}
+      >
+        <Table
+          rowKey={(item) => item.account_id || item.account_email}
+          columns={accountUsageColumns}
+          dataSource={usage?.by_account || []}
+          pagination={{ pageSize: 8 }}
+          loading={loading}
+          scroll={{ x: 1180 }}
+        />
       </Card>
 
       <Card
