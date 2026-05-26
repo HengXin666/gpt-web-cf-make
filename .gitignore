@@ -25,3 +25,7 @@ Thumbs.db
 
 # 构建产物
 *.log
+
+# ai cli
+.ai-cli
+.ai-worktrees
