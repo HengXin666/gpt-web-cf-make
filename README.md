@@ -8,7 +8,6 @@ Token 保活 + 注册机平台。使用 `refresh_token` 续期 `access_token`, �
 - **账号管理**: 支持 1k+ 账号的分页查询、筛选、批量操作、导入导出
 - **注册机**: 自动注册 OpenAI 账号(7步流程), SSE 实时进度反馈
 - **多邮箱 Provider**: 支持 10 种邮箱提供者(含本地生成和远程 API 两种模式)
-- **导出对接**: 导出到 chatgpt2api 和 infinite-canvas 项目
 
 ## 技术栈
 
@@ -17,7 +16,7 @@ Token 保活 + 注册机平台。使用 `refresh_token` 续期 `access_token`, �
 | 后端 | Python 3.11+, FastAPI, uvicorn, curl_cffi |
 | 前端 | TypeScript, React 19, Vite 7, Tailwind CSS 4, Zustand |
 | 包管理 | uv (Python), npm (前端) |
-| 存储 | JSON 文件 |
+| 存储 | JSON 文件, sqlite3 |
 
 ## 快速开始
 
@@ -146,10 +145,3 @@ cd web && npm run build
 | `gptmail` | 远程 API | GPTMail 服务 |
 | `yyds_mail` | 远程 API | YYDS 邮件服务 |
 | `ddg_mail` | 远程 API | DuckDuckGo + CF 中转 |
-
-## 设计要点
-
-- **缩减重试**: 批量 API 接受 `ids` 参数精确指定操作项, 支持仅重试失败项
-- **1k+ 账号**: 强制分页 (page_size=50), ThreadPoolExecutor(max_workers=10)
-- **SSE 实时**: 注册机每 500ms 推送状态快照(去抖), 前端 EventSource 接收
-- **本地 CF 邮箱**: `cloudflare_local` 参考 FlowPilot, 不调 API 直接拼接, 适合 catch-all 域名
