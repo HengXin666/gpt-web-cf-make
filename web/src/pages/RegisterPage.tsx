@@ -205,6 +205,13 @@ export default function RegisterPage() {
                 onChange={(e) => update({ proxy: e.target.value })}
               />
             </Field>
+            <Field label="注册密码" desc="注册账号时使用；留空则随机生成。">
+              <Input.Password
+                value={config.fixed_password || ""}
+                disabled={config.enabled}
+                onChange={(e) => update({ fixed_password: e.target.value })}
+              />
+            </Field>
             {config.mode === "quota" && (
               <Field label="目标剩余额度">
                 <InputNumber
@@ -317,21 +324,21 @@ export default function RegisterPage() {
       <Card
         className="surface runtime-panel"
         title={<div className="flex items-center gap-2">运行监控 <Tag color={config.enabled ? "green" : "default"}>{config.enabled ? "实时更新" : "已停止"}</Tag></div>}
-        styles={{ body: { height: "calc(100% - 58px)", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 } }}
+        styles={{ body: { display: "flex", flexDirection: "column", gap: 12, minHeight: 0 } }}
       >
-        <div className="grid grid-cols-2 gap-3">
+        <div className="runtime-metrics">
           {runtimeMetrics.map((item, index) => {
             const Icon = item.icon;
             return (
               <motion.div
                 key={item.label}
-                className="surface metric-card min-h-0"
+                className="runtime-mini-card"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.025 }}
               >
                 <div className="metric-label"><span>{item.label}</span><Icon className="size-4" /></div>
-                <div className="mt-2 text-xl font-bold">{String(item.value)}</div>
+                <div className="mt-1 text-base font-bold">{String(item.value)}</div>
               </motion.div>
             );
           })}
@@ -351,12 +358,12 @@ export default function RegisterPage() {
           showIcon
         />
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-col">
           <div className="mb-2 flex items-center justify-between">
             <strong className="text-sm">实时日志</strong>
             <Tag>{logs.length}</Tag>
           </div>
-          <div className="log-terminal">
+          <div className="log-terminal pipeline-log">
             {logs.length === 0 ? (
               <p className="m-0 text-slate-500">暂无日志，启动任务后这里会显示注册流水。</p>
             ) : (

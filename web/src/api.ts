@@ -24,6 +24,7 @@ import type {
   AccountListResponse,
   AccountStats,
   BatchResult,
+  RefreshJob,
 } from "./types";
 
 export const api = {
@@ -121,12 +122,47 @@ export const api = {
     return request<import("./types").AppConfig>("PUT", "/api/settings", updates);
   },
 
-  // 导出
-  exportToChatgpt2api(ids: string[]) {
-    return request<import("./types").Chatgpt2apiExport>("POST", "/api/export/chatgpt2api", { ids });
+  testProxy(proxy: string, url?: string) {
+    return request<import("./types").ProxyTestResult>("POST", "/api/settings/test-proxy", { proxy, url });
   },
 
-  exportToInfiniteCanvas(ids: string[]) {
-    return request<import("./types").InfiniteCanvasExport>("POST", "/api/export/infinite-canvas", { ids });
+  createRefreshJob(action: "quota" | "token", ids: string[]) {
+    return request<RefreshJob>("POST", "/api/refresh-jobs", { action, ids });
+  },
+
+  getUpstreamModels(upstreamBaseUrl?: string) {
+    const qs = new URLSearchParams();
+    if (upstreamBaseUrl) qs.set("upstream_base_url", upstreamBaseUrl);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<import("./types").UpstreamModelsResult>("GET", `/api/settings/upstream-models${suffix}`);
+  },
+
+  // OpenAI 兼容反代
+  getProxyStatus() {
+    return request<import("./types").ProxyStatus>("GET", "/api/proxy/status");
+  },
+
+  listProxyKeys() {
+    return request<{ items: import("./types").ProxyKey[] }>("GET", "/api/proxy/keys");
+  },
+
+  createProxyKey(name: string) {
+    return request<import("./types").ProxyKeyCreated>("POST", "/api/proxy/keys", { name });
+  },
+
+  updateProxyKey(id: string, updates: { name?: string; enabled?: boolean }) {
+    return request<import("./types").ProxyKey>("PATCH", `/api/proxy/keys/${id}`, updates);
+  },
+
+  deleteProxyKey(id: string) {
+    return request<{ deleted: boolean }>("DELETE", `/api/proxy/keys/${id}`);
+  },
+
+  getProxyUsage(limit = 5000) {
+    return request<import("./types").ProxyUsageSummary>("GET", `/api/proxy/usage?limit=${limit}`);
+  },
+
+  getProxyUsageSeries(minutes = 240, bucketSeconds = 60) {
+    return request<import("./types").ProxyUsageSeries>("GET", `/api/proxy/usage-series?minutes=${minutes}&bucket_seconds=${bucketSeconds}`);
   },
 };

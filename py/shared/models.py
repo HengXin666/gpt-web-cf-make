@@ -77,6 +77,7 @@ class RegisterConfig:
     target_quota: int = 100
     target_available: int = 10
     check_interval: int = 5
+    fixed_password: str = ""
     enabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:

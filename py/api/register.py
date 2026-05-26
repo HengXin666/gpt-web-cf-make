@@ -24,6 +24,7 @@ class RegisterConfigUpdate(BaseModel):
     target_quota: int | None = None
     target_available: int | None = None
     check_interval: int | None = None
+    fixed_password: str | None = None
 
 
 @router.get("/api/register/config")

@@ -54,6 +54,28 @@ export interface BatchResult {
   errors: Array<{ id: string; error: string }>;
 }
 
+export interface RefreshJob {
+  job_id: string;
+  action: "quota" | "token";
+  total: number;
+}
+
+export interface RefreshJobEvent {
+  type: "start" | "progress" | "done";
+  action?: "quota" | "token";
+  status?: "running" | "success" | "failed";
+  index?: number;
+  total?: number;
+  id?: string;
+  email?: string;
+  quota?: number;
+  plan_type?: string;
+  error?: string;
+  refreshed?: number;
+  failed?: number;
+  failed_ids?: string[];
+}
+
 export interface RegisterConfig {
   mail: MailConfig;
   proxy: string;
@@ -63,6 +85,7 @@ export interface RegisterConfig {
   target_quota: number;
   target_available: number;
   check_interval: number;
+  fixed_password: string;
   enabled: boolean;
   stats: RegisterStats;
   logs: LogEntry[];
@@ -124,14 +147,17 @@ export interface LogEntry {
 
 export interface AppConfig {
   proxy: string;
-  fixed_password: string;
   oauth_profile: string;
   oauth: Record<string, string>;
   codex_oauth: Record<string, string>;
   token_refresh: TokenRefreshConfig;
-  chatgpt2api: Record<string, string>;
-  infinite_canvas: Record<string, string>;
+  http: HttpConfig;
+  reverse_proxy: ReverseProxyConfig;
   [key: string]: unknown;
+}
+
+export interface HttpConfig {
+  version: "http2" | "http1.1";
 }
 
 export interface TokenRefreshConfig {
@@ -142,14 +168,158 @@ export interface TokenRefreshConfig {
   retry_failed_only: boolean;
 }
 
-export interface Chatgpt2apiExport {
-  accounts: Array<Record<string, unknown>>;
-  auth_keys: Array<Record<string, unknown>>;
-  count: number;
+export interface ProxyTestResult {
+  ok: boolean;
+  status: number;
+  latency_ms: number;
+  http_version: string;
+  target: string;
+  error?: string;
 }
 
-export interface InfiniteCanvasExport {
-  channels: Array<Record<string, unknown>>;
-  count: number;
-  pushed: boolean;
+export interface UpstreamModelsResult {
+  models: string[];
+  source: string;
+}
+
+export interface ReverseProxyConfig {
+  enabled: boolean;
+  upstream_base_url: string;
+  strategy: "round_robin" | "random";
+  timeout_seconds: number;
+  max_retries: number;
+  remember_keys: boolean;
+  models: string[];
+}
+
+export interface ProxyStatus {
+  enabled: boolean;
+  base_url: string;
+  v1_base_url: string;
+  upstream_base_url: string;
+  strategy: string;
+  available_accounts: number;
+  keys: number;
+}
+
+export interface ProxyKey {
+  id: string;
+  name: string;
+  key?: string;
+  enabled: boolean;
+  created_at: string;
+  last_used_at: string;
+}
+
+export interface ProxyKeyCreated extends ProxyKey {
+  key: string;
+}
+
+export interface ProxyUsageRecord {
+  request_id?: string;
+  state?: "running" | "success" | "failed";
+  time: string;
+  api_key: { id?: string; name?: string };
+  account: { id?: string; email?: string };
+  path: string;
+  method: string;
+  model: string;
+  status_code: number;
+  latency_ms: number;
+  success: boolean;
+  stream?: boolean;
+  stream_chunks?: number;
+  stream_logs?: Array<{ time: string; message: string }>;
+  request_bytes: number;
+  response_bytes: number;
+  usage: {
+    prompt_tokens?: number;
+    cached_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    image_input_tokens?: number;
+    image_output_tokens?: number;
+    image_count?: number;
+    estimated?: boolean;
+  };
+  cost?: ProxyUsageCost;
+  error?: string;
+  attempt_count?: number;
+  attempts?: ProxyUsageAttempt[];
+}
+
+export interface ProxyUsageAttempt {
+  account: { id?: string; email?: string };
+  status_code: number;
+  latency_ms: number;
+  success: boolean;
+  response_bytes: number;
+  error?: string;
+}
+
+export interface ProxyUsageSummary {
+  total: number;
+  success: number;
+  failed: number;
+  running: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  by_key: Array<{ name: string; requests: number; success: number; failed: number; tokens: number }>;
+  by_model: Array<{ model: string; requests: number; success: number; failed: number; tokens: number }>;
+  active: ProxyUsageRecord[];
+  recent: ProxyUsageRecord[];
+}
+
+export interface ProxyUsageCost {
+  pricing_model: string;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  image_input_tokens: number;
+  image_output_tokens: number;
+  image_count: number;
+  estimated: boolean;
+  input_cost_usd: number;
+  cached_input_cost_usd: number;
+  output_cost_usd: number;
+  image_input_cost_usd: number;
+  image_output_cost_usd: number;
+  total_cost_usd: number;
+}
+
+export interface ProxyUsagePoint {
+  time: string;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  image_input_tokens: number;
+  image_output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  estimated: boolean;
+}
+
+export interface ProxyUsageSeries {
+  window_minutes: number;
+  bucket_seconds: number;
+  points: ProxyUsagePoint[];
+  total_cost_usd: number;
+}
+
+export interface ProxyLiveLog {
+  time: string;
+  request_id?: string;
+  level: "info" | "warn" | "error";
+  message: string;
+  record?: ProxyUsageRecord;
+}
+
+export interface ProxyUsageEvent {
+  type: "snapshot" | "started" | "updated" | "completed" | "log";
+  active?: ProxyUsageRecord[];
+  logs?: ProxyLiveLog[];
+  record?: ProxyUsageRecord;
+  log?: ProxyLiveLog;
 }

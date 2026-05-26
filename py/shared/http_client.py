@@ -16,11 +16,19 @@ class UpstreamError(RuntimeError):
 def create_session(proxy: str = "") -> Any:
     """创建带指纹伪装的 curl_cffi Session"""
     from curl_cffi import requests as curl_requests
-    session: Any = curl_requests.Session(impersonate="chrome")
+    session: Any = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
     session.verify = False
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}
     return session
+
+
+def get_curl_http_version() -> Any:
+    """将配置转换为 curl_cffi 的 HTTP 版本枚举。"""
+    from curl_cffi.const import CurlHttpVersion
+    from ..config_service import config_service
+
+    return CurlHttpVersion.V1_1 if config_service.get_http_version() == "http1.1" else CurlHttpVersion.V2_0
 
 
 def request_with_retry(

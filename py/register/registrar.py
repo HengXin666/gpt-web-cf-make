@@ -17,6 +17,7 @@ from urllib.parse import urljoin
 
 import urllib3
 from curl_cffi import requests as curl_requests
+from ..shared.http_client import get_curl_http_version
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -193,7 +194,7 @@ def _request_with_retry(session: Any, method: str, url: str, retry_attempts: int
 
 
 def create_session(proxy: str = "") -> Any:
-    session: Any = curl_requests.Session(impersonate="chrome")
+    session: Any = curl_requests.Session(impersonate="chrome", http_version=get_curl_http_version())
     session.verify = False
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}

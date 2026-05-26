@@ -186,7 +186,7 @@ class RegisterService:
         try:
             config = config_service.get()
             proxy = config_service.get_proxy()
-            fixed_password = str(config.get("fixed_password") or "").strip()
+            fixed_password = str(self._config.fixed_password or "").strip()
             oauth_profile = str(config.get("oauth_profile") or "platform").strip()
             token_oauth = config_service.get_oauth(oauth_profile)
 

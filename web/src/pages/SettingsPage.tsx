@@ -1,12 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { App, Card, Input, InputNumber, Select, Space, Switch, Tag } from "antd";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, App, Button, Card, Input, InputNumber, Select, Space, Tag } from "antd";
+import { NavLink, Navigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Braces, Cable, KeyRound, RefreshCcw, Settings2, Shield } from "lucide-react";
+import { Braces, KeyRound, Network, RefreshCcw, Save, Settings2 } from "lucide-react";
+import { api } from "../api";
 import { useSettingsStore } from "../stores/settingsStore";
+import type { AppConfig, ProxyTestResult } from "../types";
 
-function Field({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
+type Section = "basic" | "oauth" | "refresh" | "proxy";
+
+const sections: Array<{ key: Section; to: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { key: "basic", to: "/settings/basic", label: "基本与代理", icon: Settings2 },
+  { key: "oauth", to: "/settings/oauth", label: "OAuth 配置", icon: KeyRound },
+  { key: "refresh", to: "/settings/refresh", label: "保活策略", icon: RefreshCcw },
+  { key: "proxy", to: "/settings/proxy", label: "反代策略", icon: Network },
+];
+
+function Field({ label, desc, children, wide = false }: { label: string; desc?: string; children: React.ReactNode; wide?: boolean }) {
   return (
-    <div className="field">
+    <div className={`field settings-field ${wide ? "is-wide" : ""}`}>
       <label>{label}</label>
       {children}
       {desc && <p>{desc}</p>}
@@ -14,13 +26,28 @@ function Field({ label, desc, children }: { label: string; desc?: string; childr
   );
 }
 
+function SettingSwitch({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <div className="settings-switch" role="group">
+      <button type="button" className={checked ? "is-active" : ""} onClick={() => onChange(true)}>启用</button>
+      <button type="button" className={!checked ? "is-active" : ""} onClick={() => onChange(false)}>关闭</button>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
+  const params = useParams();
+  const section = params.section as Section;
   const { config, loading } = useSettingsStore();
   const load = useSettingsStore((s) => s.load);
   const save = useSettingsStore((s) => s.save);
   const didLoad = useRef(false);
   const { message } = App.useApp();
-  const [savingKey, setSavingKey] = useState("");
+  const [draft, setDraft] = useState<AppConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [testingProxy, setTestingProxy] = useState(false);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [proxyResult, setProxyResult] = useState<ProxyTestResult | null>(null);
 
   useEffect(() => {
     if (!didLoad.current) {
@@ -29,205 +56,271 @@ export default function SettingsPage() {
     }
   }, [load]);
 
-  const handleSave = useCallback(async (key: string, updates: Record<string, unknown>) => {
-    setSavingKey(key);
+  useEffect(() => {
+    if (config) setDraft(config);
+  }, [config]);
+
+  const patchDraft = useCallback((updates: Partial<AppConfig>) => {
+    setDraft((current) => current ? ({ ...current, ...updates } as AppConfig) : current);
+  }, []);
+
+  const saveSection = async (updates: Record<string, unknown>) => {
+    setSaving(true);
     try {
       await save(updates);
-      message.success("设置已保存");
+      message.success("已保存");
     } catch (e) {
       message.error("保存失败：" + (e as Error).message);
     } finally {
-      setSavingKey("");
+      setSaving(false);
     }
-  }, [message, save]);
+  };
 
-  if (loading && !config) {
+  const fetchUpstreamModels = async () => {
+    if (!draft) return;
+    setLoadingModels(true);
+    try {
+      const result = await api.getUpstreamModels(draft.reverse_proxy?.upstream_base_url);
+      patchDraft({ reverse_proxy: { ...draft.reverse_proxy, models: result.models } });
+      message.success(`已获取 ${result.models.length} 个模型`);
+    } catch (e) {
+      message.error("获取模型失败：" + (e as Error).message);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const testProxy = async () => {
+    if (!draft) return;
+    setTestingProxy(true);
+    setProxyResult(null);
+    try {
+      const result = await api.testProxy(String(draft.proxy || ""));
+      setProxyResult(result);
+      result.ok ? message.success(`代理可用，延迟 ${result.latency_ms} ms`) : message.error(result.error || `代理不可用，HTTP ${result.status}`);
+    } catch (e) {
+      message.error("代理测试失败：" + (e as Error).message);
+    } finally {
+      setTestingProxy(false);
+    }
+  };
+
+  const currentTitle = useMemo(() => sections.find((item) => item.key === section)?.label || "系统设置", [section]);
+
+  if (!["basic", "oauth", "refresh", "proxy"].includes(section)) {
+    return <Navigate to="/settings/basic" replace />;
+  }
+  if (loading && !draft) {
     return <div className="flex justify-center py-20"><div className="animate-spin h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent" /></div>;
   }
-  if (!config) return null;
-
-  const nav = [
-    { href: "#basic", label: "基本设置", icon: Settings2 },
-    { href: "#oauth", label: "OAuth 配置", icon: KeyRound },
-    { href: "#refresh", label: "保活策略", icon: RefreshCcw },
-    { href: "#export", label: "导出对接", icon: Cable },
-  ];
+  if (!draft) return null;
 
   return (
-    <div className="settings-layout">
+    <div className="settings-layout settings-page">
       <aside className="surface settings-index">
-        <div className="mb-3">
-          <h2 className="section-title text-base">策略索引</h2>
-          <p className="section-desc">修改后会自动写入后端。</p>
+        <div className="settings-index-head">
+          <h2>设置</h2>
+          <p>按模块保存配置</p>
         </div>
-        {nav.map((item) => {
+        {sections.map((item) => {
           const Icon = item.icon;
           return (
-            <a key={item.href} href={item.href}>
+            <NavLink key={item.key} to={item.to} className={({ isActive }) => isActive ? "is-active" : ""}>
               <Icon className="size-4" />
               <span>{item.label}</span>
-            </a>
+            </NavLink>
           );
         })}
       </aside>
 
       <div className="settings-stack">
-        <div className="section-head">
+        <div className="section-head settings-page-head">
           <div>
-            <h2 className="section-title">系统设置</h2>
-            <p className="section-desc">统一管理代理、OAuth Profile、Token 自动保活和外部系统同步参数。</p>
+            <h2 className="section-title">{currentTitle}</h2>
+            <p className="section-desc">改动不会自动写入，点击保存后才会更新后端配置。</p>
           </div>
-          <Space>
-            <Tag color={savingKey ? "processing" : "green"}>{savingKey ? "保存中" : "配置已就绪"}</Tag>
-          </Space>
+          <Tag color={saving ? "processing" : "default"}>{saving ? "保存中" : "待编辑"}</Tag>
         </div>
 
-        <motion.div id="basic" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="surface" title={<Title icon={Settings2} text="基本设置" />}>
-            <div className="form-grid">
-              <Field label="HTTP 代理" desc="所有上游请求使用的代理地址">
-                <Input
-                  defaultValue={String(config.proxy || "")}
-                  placeholder="http://127.0.0.1:7890"
-                  onBlur={(e) => handleSave("proxy", { proxy: e.target.value })}
-                />
-              </Field>
-              <Field label="固定密码" desc="注册账号时使用；留空则随机生成">
-                <Input.Password
-                  defaultValue={String(config.fixed_password || "")}
-                  onBlur={(e) => handleSave("fixed_password", { fixed_password: e.target.value })}
-                />
-              </Field>
-              <Field label="OAuth 配置模式" desc="决定注册和刷新使用的 OAuth profile">
-                <Select
-                  defaultValue={String(config.oauth_profile || "platform")}
-                  onChange={(v) => handleSave("oauth_profile", { oauth_profile: v })}
-                  options={[
-                    { value: "platform", label: "Platform" },
-                    { value: "codex", label: "Codex" },
-                  ]}
-                />
-              </Field>
-            </div>
-          </Card>
-        </motion.div>
-
-        <motion.div id="oauth" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04 }}>
-          <Card className="surface" title={<Title icon={KeyRound} text="Platform OAuth" />} extra={<Tag>platform</Tag>}>
-            <div className="form-grid two">
-              {Object.entries(config.oauth || {}).map(([k, v]) => (
-                <Field key={k} label={k}>
-                  <Input
-                    className="code-text"
-                    defaultValue={String(v || "")}
-                    onBlur={(e) => handleSave(`oauth.${k}`, { oauth: { ...config.oauth, [k]: e.target.value } })}
+        {section === "basic" && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            <SettingsCard
+              icon={Network}
+              title="代理与请求协议"
+              actions={
+                <>
+                  <Button onClick={testProxy} loading={testingProxy}>测试代理延迟</Button>
+                  <Button type="primary" icon={<Save className="size-4" />} loading={saving} onClick={() => saveSection({ proxy: draft.proxy, oauth_profile: draft.oauth_profile, http: draft.http })}>
+                    保存
+                  </Button>
+                </>
+              }
+            >
+              <div className="settings-form-grid">
+                <Field label="HTTP 代理" desc="所有上游请求使用的代理地址；留空表示直连。" wide>
+                  <Input value={String(draft.proxy || "")} placeholder="http://127.0.0.1:7890" onChange={(e) => patchDraft({ proxy: e.target.value })} />
+                </Field>
+                <Field label="请求协议" desc="作用于 curl_cffi 创建的所有 Session。">
+                  <Select
+                    value={draft.http?.version || "http2"}
+                    onChange={(v) => patchDraft({ http: { ...(draft.http || {}), version: v } })}
+                    options={[
+                      { value: "http2", label: "HTTP/2.0" },
+                      { value: "http1.1", label: "强制 HTTP/1.1" },
+                    ]}
                   />
                 </Field>
-              ))}
-            </div>
-          </Card>
-        </motion.div>
-
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
-          <Card className="surface" title={<Title icon={Braces} text="Codex OAuth" />} extra={<Tag>codex</Tag>}>
-            <div className="form-grid two">
-              {Object.entries(config.codex_oauth || {}).map(([k, v]) => (
-                <Field key={k} label={k}>
-                  <Input
-                    className="code-text"
-                    defaultValue={String(v || "")}
-                    onBlur={(e) => handleSave(`codex_oauth.${k}`, { codex_oauth: { ...config.codex_oauth, [k]: e.target.value } })}
+                <Field label="OAuth 配置模式">
+                  <Select
+                    value={String(draft.oauth_profile || "platform")}
+                    onChange={(v) => patchDraft({ oauth_profile: v })}
+                    options={[
+                      { value: "platform", label: "Platform" },
+                      { value: "codex", label: "Codex" },
+                    ]}
                   />
                 </Field>
-              ))}
-            </div>
-          </Card>
-        </motion.div>
+              </div>
+              {proxyResult && (
+                <div className="selection-bar mt-4">
+                  <strong className="text-sm">{proxyResult.ok ? "代理可用" : "代理不可用"}</strong>
+                  <span className="text-sm text-slate-500">延迟 {proxyResult.latency_ms} ms</span>
+                  <span className="text-sm text-slate-500">HTTP {proxyResult.status || "-"}</span>
+                  <span className="text-sm text-slate-500">协议 {proxyResult.http_version === "http1.1" ? "HTTP/1.1" : "HTTP/2.0"}</span>
+                  {proxyResult.error && <span className="text-sm text-red-500">{proxyResult.error}</span>}
+                </div>
+              )}
+            </SettingsCard>
+          </motion.div>
+        )}
 
-        <motion.div id="refresh" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
-          <Card className="surface" title={<Title icon={RefreshCcw} text="Token 保活策略" />} extra={<Tag color={config.token_refresh?.enabled ? "green" : "default"}>{config.token_refresh?.enabled ? "已启用" : "未启用"}</Tag>}>
-            <div className="form-grid">
-              <Field label="启用自动保活" desc="后台自动续期即将过期的 Token">
-                <Switch
-                  defaultValue={Boolean(config.token_refresh?.enabled)}
-                  onChange={(v) => handleSave("token_refresh.enabled", { token_refresh: { ...config.token_refresh, enabled: v } })}
-                />
-              </Field>
-              <Field label="缩减重试" desc="批量操作时仅重试失败的项">
-                <Switch
-                  defaultValue={Boolean(config.token_refresh?.retry_failed_only)}
-                  onChange={(v) => handleSave("token_refresh.retry_failed_only", { token_refresh: { ...config.token_refresh, retry_failed_only: v } })}
-                />
-              </Field>
-              <Field label="续期间隔（分钟）">
-                <InputNumber
-                  min={1}
-                  defaultValue={config.token_refresh?.interval_minutes || 60}
-                  onChange={(v) => v != null && handleSave("token_refresh.interval_minutes", { token_refresh: { ...config.token_refresh, interval_minutes: v } })}
-                  style={{ width: "100%" }}
-                />
-              </Field>
-              <Field label="到期阈值（天）" desc="N 天内过期的 Token 会被续期">
-                <InputNumber
-                  min={1}
-                  defaultValue={config.token_refresh?.expiring_days || 5}
-                  onChange={(v) => v != null && handleSave("token_refresh.expiring_days", { token_refresh: { ...config.token_refresh, expiring_days: v } })}
-                  style={{ width: "100%" }}
-                />
-              </Field>
-              <Field label="最大并发数" desc="批量刷新并发，建议 1-50">
-                <InputNumber
-                  min={1}
-                  max={50}
-                  defaultValue={config.token_refresh?.max_workers || 10}
-                  onChange={(v) => v != null && handleSave("token_refresh.max_workers", { token_refresh: { ...config.token_refresh, max_workers: v } })}
-                  style={{ width: "100%" }}
-                />
-              </Field>
-            </div>
-          </Card>
-        </motion.div>
+        {section === "oauth" && (
+          <motion.div className="settings-stack" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            <SettingsCard
+              icon={KeyRound}
+              title="Platform OAuth"
+              actions={<Button type="primary" icon={<Save className="size-4" />} loading={saving} onClick={() => saveSection({ oauth: draft.oauth })}>保存 Platform</Button>}
+            >
+              <div className="settings-form-grid">
+                {Object.entries(draft.oauth || {}).map(([k, v]) => (
+                  <Field key={k} label={k}>
+                    <Input className="code-text" value={String(v || "")} onChange={(e) => patchDraft({ oauth: { ...draft.oauth, [k]: e.target.value } })} />
+                  </Field>
+                ))}
+              </div>
+            </SettingsCard>
+            <SettingsCard
+              icon={Braces}
+              title="Codex OAuth"
+              actions={<Tag>暂未支持</Tag>}
+            >
+              <Alert className="mb-4" type="info" showIcon message="Codex OAuth 暂未支持编辑；当前仅展示内置配置。" />
+              <div className="settings-form-grid">
+                {Object.entries(draft.codex_oauth || {}).map(([k, v]) => (
+                  <Field key={k} label={k}>
+                    <Input className="code-text" value={String(v || "")} disabled />
+                  </Field>
+                ))}
+              </div>
+            </SettingsCard>
+          </motion.div>
+        )}
 
-        <motion.div id="export" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }}>
-          <Card className="surface" title={<Title icon={Cable} text="导出对接" />}>
-            <div className="form-grid">
-              <Field label="chatgpt2api 导出目录" desc="导出 accounts.json 与 auth_keys.json 的目标路径">
-                <Input
-                  defaultValue={String(config.chatgpt2api?.export_dir || "../chatgpt2api/data")}
-                  onBlur={(e) => handleSave("chatgpt2api.export_dir", { chatgpt2api: { ...config.chatgpt2api, export_dir: e.target.value } })}
-                />
-              </Field>
-              <Field label="infinite-canvas API 地址">
-                <Input
-                  defaultValue={String(config.infinite_canvas?.api_url || "http://127.0.0.1:8080")}
-                  onBlur={(e) => handleSave("infinite_canvas.api_url", { infinite_canvas: { ...config.infinite_canvas, api_url: e.target.value } })}
-                />
-              </Field>
-              <Field label="管理员用户名">
-                <Input
-                  defaultValue={String(config.infinite_canvas?.admin_username || "admin")}
-                  onBlur={(e) => handleSave("infinite_canvas.admin_username", { infinite_canvas: { ...config.infinite_canvas, admin_username: e.target.value } })}
-                />
-              </Field>
-              <Field label="管理员密码">
-                <Input.Password
-                  defaultValue={String(config.infinite_canvas?.admin_password || "")}
-                  onBlur={(e) => handleSave("infinite_canvas.admin_password", { infinite_canvas: { ...config.infinite_canvas, admin_password: e.target.value } })}
-                />
-              </Field>
-            </div>
-          </Card>
-        </motion.div>
+        {section === "refresh" && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            <SettingsCard
+              icon={RefreshCcw}
+              title="Token 保活策略"
+              actions={<Button type="primary" icon={<Save className="size-4" />} loading={saving} onClick={() => saveSection({ token_refresh: draft.token_refresh })}>保存</Button>}
+            >
+              <div className="settings-form-grid">
+                <Field label="启用自动保活">
+                  <SettingSwitch checked={Boolean(draft.token_refresh?.enabled)} onChange={(v) => patchDraft({ token_refresh: { ...draft.token_refresh, enabled: v } })} />
+                </Field>
+                <Field label="只重试失败项" desc="批量操作后，前端也会保留失败账号用于一键重试。">
+                  <SettingSwitch checked={Boolean(draft.token_refresh?.retry_failed_only)} onChange={(v) => patchDraft({ token_refresh: { ...draft.token_refresh, retry_failed_only: v } })} />
+                </Field>
+                <Field label="续期间隔" desc="单位：分钟。">
+                  <InputNumber min={1} addonAfter="分钟" value={draft.token_refresh?.interval_minutes || 60} onChange={(v) => patchDraft({ token_refresh: { ...draft.token_refresh, interval_minutes: Number(v || 1) } })} style={{ width: "100%" }} />
+                </Field>
+                <Field label="到期阈值" desc="单位：天；N 天内过期的 Token 会被续期。">
+                  <InputNumber min={1} addonAfter="天" value={draft.token_refresh?.expiring_days || 5} onChange={(v) => patchDraft({ token_refresh: { ...draft.token_refresh, expiring_days: Number(v || 1) } })} style={{ width: "100%" }} />
+                </Field>
+                <Field label="最大并发数" desc="单位：个任务；范围 1-50。">
+                  <InputNumber min={1} max={50} addonAfter="个" value={draft.token_refresh?.max_workers || 10} onChange={(v) => patchDraft({ token_refresh: { ...draft.token_refresh, max_workers: Number(v || 1) } })} style={{ width: "100%" }} />
+                </Field>
+              </div>
+            </SettingsCard>
+          </motion.div>
+        )}
+
+        {section === "proxy" && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            <SettingsCard
+              icon={Network}
+              title="OpenAI 兼容反代"
+              actions={<Button type="primary" icon={<Save className="size-4" />} loading={saving} onClick={() => saveSection({ reverse_proxy: draft.reverse_proxy })}>保存</Button>}
+            >
+              <div className="settings-form-grid">
+                <Field label="启用反代">
+                  <SettingSwitch checked={Boolean(draft.reverse_proxy?.enabled)} onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, enabled: v } })} />
+                </Field>
+                <Field label="负载均衡策略">
+                  <Select
+                    value={draft.reverse_proxy?.strategy || "round_robin"}
+                    onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, strategy: v } })}
+                    options={[
+                      { value: "round_robin", label: "加权轮询" },
+                      { value: "random", label: "随机" },
+                    ]}
+                  />
+                </Field>
+                <Field label="上游 Base URL" desc="未内置适配的 OpenAI 兼容接口使用；文本和图片接口会走 ChatGPT Web backend。" wide>
+                  <Input value={String(draft.reverse_proxy?.upstream_base_url || "https://api.openai.com")} onChange={(e) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, upstream_base_url: e.target.value } })} />
+                </Field>
+                <Field label="超时时间">
+                  <InputNumber min={5} max={600} addonAfter="秒" value={draft.reverse_proxy?.timeout_seconds || 120} onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, timeout_seconds: Number(v || 120) } })} style={{ width: "100%" }} />
+                </Field>
+                <Field label="失败重试账号数" desc="遇到 401、429、5xx 时会换账号重试；数量超过账号池时会从头循环。">
+                  <InputNumber min={1} max={10} addonAfter="个" value={draft.reverse_proxy?.max_retries || 2} onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, max_retries: Number(v || 1) } })} style={{ width: "100%" }} />
+                </Field>
+                <Field label="记忆 API Key" desc="开启后，新建的反代 API Key 会保存明文并可在密钥列表显示；旧密钥无法反推显示。">
+                  <SettingSwitch checked={Boolean(draft.reverse_proxy?.remember_keys)} onChange={(v) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, remember_keys: v } })} />
+                </Field>
+                <Field label="模型列表" desc="可先从上游 /v1/models 获取；也可手动输入后按回车确认，点击标签上的 x 删除。" wide>
+                  <Space.Compact className="w-full">
+                    <Select
+                      mode="tags"
+                      className="w-full"
+                      open={false}
+                      value={draft.reverse_proxy?.models || []}
+                      tokenSeparators={[",", " "]}
+                      placeholder="输入模型名后按回车，例如 gpt-5.1"
+                      onChange={(models) => patchDraft({ reverse_proxy: { ...draft.reverse_proxy, models: models.map((item) => item.trim()).filter(Boolean) } })}
+                    />
+                    <Button loading={loadingModels} onClick={fetchUpstreamModels}>从上游获取</Button>
+                  </Space.Compact>
+                </Field>
+              </div>
+            </SettingsCard>
+          </motion.div>
+        )}
       </div>
     </div>
   );
 }
 
-function Title({ icon: Icon, text }: { icon: React.ComponentType<{ className?: string }>; text: string }) {
+function SettingsCard({ icon: Icon, title, actions, children }: { icon: React.ComponentType<{ className?: string }>; title: string; actions: React.ReactNode; children: React.ReactNode }) {
   return (
-    <span className="flex items-center gap-2">
-      <Icon className="size-4 text-blue-500" />
-      {text}
-    </span>
+    <Card className="surface settings-card">
+      <div className="settings-card-head">
+        <div className="settings-card-title">
+          <Icon className="size-4" />
+          <span>{title}</span>
+        </div>
+        <div className="settings-card-actions">{actions}</div>
+      </div>
+      <div className="settings-card-body">{children}</div>
+    </Card>
   );
 }

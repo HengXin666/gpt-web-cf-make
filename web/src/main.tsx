@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { ConfigProvider, theme, App as AntApp } from "antd";
+import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./styles.css";
 
@@ -32,7 +33,9 @@ function Root() {
       }}
     >
       <AntApp>
-        <App dark={dark} setDark={setDark} />
+        <BrowserRouter>
+          <App dark={dark} setDark={setDark} />
+        </BrowserRouter>
       </AntApp>
     </ConfigProvider>
   );

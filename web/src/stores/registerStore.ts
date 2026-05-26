@@ -44,6 +44,7 @@ export const useRegisterStore = create<RegisterStore>((set, get) => ({
         target_quota: cfg.target_quota,
         target_available: cfg.target_available,
         check_interval: cfg.check_interval,
+        fixed_password: cfg.fixed_password,
       });
       set({ config: updated });
     } finally {

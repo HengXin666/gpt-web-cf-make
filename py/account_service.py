@@ -190,6 +190,16 @@ class AccountService:
                 return [deepcopy(self._accounts[a_id].to_dict()) for a_id in ids if a_id in self._accounts]
             return [deepcopy(a.to_dict()) for a in self._accounts.values()]
 
+    def list_proxy_candidates(self) -> list[dict[str, Any]]:
+        """列出可参与 OpenAI 兼容反代的账号。"""
+        with self._lock:
+            candidates = []
+            for account in self._accounts.values():
+                if not account.access_token or account.status in {"disabled", "abnormal"}:
+                    continue
+                candidates.append(deepcopy(account.to_dict()))
+            return candidates
+
     def refresh_account_quota(self, account_id: str) -> dict[str, Any]:
         """刷新单个账号配额和状态 - 调用 OpenAI Backend API"""
         from .backend_api import OpenAIBackendAPI, InvalidAccessTokenError

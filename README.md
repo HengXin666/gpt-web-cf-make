@@ -1,13 +1,13 @@
 # GPT-Web-CF-Make
 
-Token 保活 + 注册机平台。使用 `refresh_token` 续期 `access_token`，附带 OpenAI 账号自动注册能力。
+Token 保活 + 注册机平台。使用 `refresh_token` 续期 `access_token`, 附带 OpenAI 账号自动注册能力。
 
 ## 功能
 
-- **Token 保活**: 批量续期 access_token，支持缩减重试（仅重试失败项）
+- **Token 保活**: 批量续期 access_token, 支持缩减重试(仅重试失败项)
 - **账号管理**: 支持 1k+ 账号的分页查询、筛选、批量操作、导入导出
-- **注册机**: 自动注册 OpenAI 账号（7步流程），SSE 实时进度反馈
-- **多邮箱 Provider**: 支持 10 种邮箱提供者（含本地生成和远程 API 两种模式）
+- **注册机**: 自动注册 OpenAI 账号(7步流程), SSE 实时进度反馈
+- **多邮箱 Provider**: 支持 10 种邮箱提供者(含本地生成和远程 API 两种模式)
 - **导出对接**: 导出到 chatgpt2api 和 infinite-canvas 项目
 
 ## 技术栈
@@ -33,7 +33,7 @@ cd web && npm install
 
 ### 2. 配置
 
-编辑 `config.json`，设置代理、OAuth 参数等。
+编辑 `config.json`, 设置代理、OAuth 参数等。
 
 ```json
 {
@@ -52,7 +52,7 @@ cd web && npm install
 # 后端 (端口 8787)
 uv run python py/main.py
 
-# 前端开发 (端口 5173，自动代理到 8787)
+# 前端开发 (端口 5173, 自动代理到 8787)
 cd web && npm run dev
 
 # 前端构建 (输出到 web/dist/)
@@ -116,6 +116,16 @@ cd web && npm run build
 | POST | `/api/register/stop` | 停止 |
 | GET | `/api/register/events` | SSE 事件流 |
 
+### OpenAI 兼容反代
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/v1/models` | 返回配置中的模型列表 |
+| POST | `/v1/chat/completions` | 文本/多模态 Chat Completions |
+| POST | `/v1/responses` | Responses 文本接口 |
+| POST | `/v1/messages` | Anthropic Messages 兼容接口 |
+| POST | `/v1/images/generations` | ChatGPT Web backend 文生图 |
+| POST | `/v1/images/edits` | ChatGPT Web backend 图生图 |
+
 ### 导出
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -127,7 +137,7 @@ cd web && npm run build
 | Provider | 模式 | 说明 |
 |------|------|------|
 | `cloudflare_temp_email` | 远程 API | 调用 `/admin/new_address` 创建邮箱 |
-| `cloudflare_local` | **本地生成** | 不调 API，直接拼接前缀+域名（需 catch-all 域名 + 收件箱 JWT） |
+| `cloudflare_local` | **本地生成** | 不调 API, 直接拼接前缀+域名(需 catch-all 域名 + 收件箱 JWT) |
 | `tempmail_lol` | 远程 API | TempMail.lol 服务 |
 | `cloudmail_gen` | 远程 API | CloudMail 生成服务 |
 | `moemail` | 远程 API | MoEmail 服务 |
@@ -139,7 +149,7 @@ cd web && npm run build
 
 ## 设计要点
 
-- **缩减重试**: 批量 API 接受 `ids` 参数精确指定操作项，支持仅重试失败项
-- **1k+ 账号**: 强制分页 (page_size=50)，ThreadPoolExecutor(max_workers=10)
-- **SSE 实时**: 注册机每 500ms 推送状态快照（去抖），前端 EventSource 接收
-- **本地 CF 邮箱**: `cloudflare_local` 参考 FlowPilot，不调 API 直接拼接，适合 catch-all 域名
+- **缩减重试**: 批量 API 接受 `ids` 参数精确指定操作项, 支持仅重试失败项
+- **1k+ 账号**: 强制分页 (page_size=50), ThreadPoolExecutor(max_workers=10)
+- **SSE 实时**: 注册机每 500ms 推送状态快照(去抖), 前端 EventSource 接收
+- **本地 CF 邮箱**: `cloudflare_local` 参考 FlowPilot, 不调 API 直接拼接, 适合 catch-all 域名

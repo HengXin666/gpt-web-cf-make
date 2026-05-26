@@ -16,7 +16,6 @@ DATA_DIR = ROOT_DIR / "data"
 # 默认配置
 _DEFAULT_CONFIG: dict[str, Any] = {
     "proxy": "",
-    "fixed_password": "",
     "oauth_profile": "platform",
     "oauth": {
         "client_id": "app_2SKx67EdpoN0G6j64rFvigXD",
@@ -38,15 +37,24 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "max_workers": 10,
         "retry_failed_only": True,
     },
-    "chatgpt2api": {
-        "accounts_path": "data/accounts.json",
-        "auth_keys_path": "data/auth_keys.json",
-        "export_dir": "../chatgpt2api/data",
+    "http": {
+        "version": "http2",
     },
-    "infinite_canvas": {
-        "api_url": "http://127.0.0.1:8080",
-        "admin_username": "admin",
-        "admin_password": "admin",
+    "reverse_proxy": {
+        "enabled": True,
+        "upstream_base_url": "https://api.openai.com",
+        "strategy": "round_robin",
+        "timeout_seconds": 120,
+        "max_retries": 2,
+        "remember_keys": False,
+        "models": [
+            "gpt-5.5",
+            "gpt-5.1",
+            "gpt-5",
+            "gpt-4.1",
+            "gpt-image-2",
+            "sora-2",
+        ],
     },
 }
 
@@ -112,6 +120,16 @@ class ConfigService:
     def get_token_refresh_config(self) -> dict[str, Any]:
         """获取 Token 刷新配置"""
         return dict(self._config.get("token_refresh") or {})
+
+    def get_http_version(self) -> str:
+        """获取 curl_cffi HTTP 版本策略: http2 或 http1.1"""
+        http_config = self._config.get("http") or {}
+        value = str(http_config.get("version") or "http2").strip().lower()
+        return "http1.1" if value in {"http1", "http1.1", "1.1", "force_http1"} else "http2"
+
+    def get_reverse_proxy_config(self) -> dict[str, Any]:
+        """获取 OpenAI 兼容反代配置。"""
+        return dict(self._config.get("reverse_proxy") or {})
 
 
 # 全局单例
