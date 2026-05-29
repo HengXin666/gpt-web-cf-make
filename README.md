@@ -9,6 +9,16 @@ Token 保活 + 注册机平台。使用 `refresh_token` 续期 `access_token`, �
 - **注册机**: 自动注册 OpenAI 账号(7步流程), SSE 实时进度反馈
 - **多邮箱 Provider**: 支持 10 种邮箱提供者(含本地生成和远程 API 两种模式)
 
+## 预览
+
+![](docs/img/main.png)
+
+![](docs/img/proxy.png)
+
+![](docs/img/register.png)
+
+![](docs/img/chat.png)
+
 ## 技术栈
 
 | 层 | 技术 |
