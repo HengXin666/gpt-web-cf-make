@@ -41,6 +41,7 @@ class Account:
     refresh_error: str = ""
     tags: list[str] = field(default_factory=list)
     notes: str = ""
+    proxy_node_id: str = ""               # 固定代理节点分配
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,6 +79,7 @@ class RegisterConfig:
     target_available: int = 10
     check_interval: int = 5
     fixed_password: str = ""
+    proxy_node_id: str = ""               # 注册机固定代理节点
     enabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:

@@ -8,12 +8,15 @@ Token 保活 + 注册机平台。使用 `refresh_token` 续期 `access_token`, �
 - **账号管理**: 支持 1k+ 账号的分页查询、筛选、批量操作、导入导出
 - **注册机**: 自动注册 OpenAI 账号(7步流程), SSE 实时进度反馈
 - **多邮箱 Provider**: 支持 10 种邮箱提供者(含本地生成和远程 API 两种模式)
+- **代理池**: 支持导入订阅作为代理池. 支持分组`注册机`与`web-api`, 并且为每一个账户均衡分配节点. 以防止同一ip的限制
 
 ## 预览
 
 ![](docs/img/main.png)
 
 ![](docs/img/proxy.png)
+
+![](docs/img/proxy_pool.png)
 
 ![](docs/img/register.png)
 

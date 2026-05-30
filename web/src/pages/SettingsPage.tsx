@@ -188,14 +188,24 @@ export default function SettingsPage() {
                 <>
                   <Button onClick={testProxy} loading={testingProxy}>测试代理延迟</Button>
                   <Button onClick={checkPurity} loading={checkingPurity} icon={<ShieldCheck className="size-4" />}>纯净度检测</Button>
-                  <Button type="primary" icon={<Save className="size-4" />} loading={saving} onClick={() => saveSection({ proxy: draft.proxy, oauth_profile: draft.oauth_profile, http: draft.http })}>
+                  <Button type="primary" icon={<Save className="size-4" />} loading={saving} onClick={() => saveSection({ proxy: draft.proxy, proxy_mode: draft.proxy_mode, oauth_profile: draft.oauth_profile, http: draft.http })}>
                     保存
                   </Button>
                 </>
               }
             >
               <div className="settings-form-grid">
-                <Field label="HTTP 代理" desc="所有上游请求使用的代理地址；留空表示直连。" wide>
+                <Field label="代理模式" desc="单一代理：所有请求走同一个代理。代理池：每个账号可分配固定节点，需先在代理池页面导入节点。">
+                  <Select
+                    value={draft.proxy_mode || "single"}
+                    onChange={(v) => patchDraft({ proxy_mode: v })}
+                    options={[
+                      { value: "single", label: "配置代理（单一代理）" },
+                      { value: "pool", label: "使用代理池" },
+                    ]}
+                  />
+                </Field>
+                <Field label="HTTP 代理" desc={draft.proxy_mode === "pool" ? "代理池模式下的全局回退地址；留空表示直连。" : "所有上游请求使用的代理地址；留空表示直连。"} wide>
                   <Input value={String(draft.proxy || "")} placeholder="http://127.0.0.1:7890" onChange={(e) => patchDraft({ proxy: e.target.value })} />
                 </Field>
                 <Field label="请求协议" desc="作用于 curl_cffi 创建的所有 Session。">

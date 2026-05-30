@@ -185,7 +185,17 @@ class RegisterService:
 
         try:
             config = config_service.get()
-            proxy = config_service.get_proxy()
+            from .proxy_pool import proxy_pool_service
+
+            # 注册机模式：从注册机池随机选一个节点，保证不同 IP
+            if config_service.get_proxy_mode() == "pool":
+                proxy, node_info = proxy_pool_service.pick_random_node(pool="register")
+            else:
+                proxy, node_info = proxy_pool_service.resolve_proxy_with_info(
+                    proxy_node_id=str(self._config.proxy_node_id or ""),
+                )
+            if node_info:
+                self._append_log(f"#{index} 使用代理节点: {node_info}", "info")
             fixed_password = str(self._config.fixed_password or "").strip()
             oauth_profile = str(config.get("oauth_profile") or "platform").strip()
             token_oauth = config_service.get_oauth(oauth_profile)

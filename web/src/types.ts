@@ -29,6 +29,7 @@ export interface Account {
   refresh_error: string;
   tags: string[];
   notes: string;
+  proxy_node_id: string;
 }
 
 export interface AccountListResponse {
@@ -106,6 +107,7 @@ export interface RegisterConfig {
   target_available: number;
   check_interval: number;
   fixed_password: string;
+  proxy_node_id: string;
   enabled: boolean;
   stats: RegisterStats;
   logs: LogEntry[];
@@ -167,6 +169,7 @@ export interface LogEntry {
 
 export interface AppConfig {
   proxy: string;
+  proxy_mode: "single" | "pool";
   oauth_profile: string;
   oauth: Record<string, string>;
   codex_oauth: Record<string, string>;
@@ -407,4 +410,71 @@ export interface ProxyUsageEvent {
   logs?: ProxyLiveLog[];
   record?: ProxyUsageRecord;
   log?: ProxyLiveLog;
+}
+
+// ── 代理池 ──────────────────────────────────────────────────────
+
+export interface ProxyNode {
+  id: string;
+  name: string;
+  protocol: "http" | "https" | "socks5" | "ss" | "vmess" | "trojan" | "vless" | "hysteria2" | "ssr" | string;
+  server: string;
+  port: number;
+  username: string;
+  password: string;
+  extra: Record<string, unknown>;
+  proxy_url: string;
+  subscription_id: string;
+  pool: "api" | "register";
+  latency_ms: number;
+  score: number;
+  grade: "pure" | "clean" | "moderate" | "risky" | "dirty" | "";
+  country: string;
+  city: string;
+  isp: string;
+  ip_type: "residential" | "datacenter" | "mobile" | "";
+  last_tested_at: string;
+  last_error: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProxyNodeListResponse {
+  items: ProxyNode[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ProxySubscription {
+  id: string;
+  url: string;
+  name: string;
+  type: "clash_yaml" | "base64" | "auto";
+  node_count: number;
+  last_synced_at: string;
+}
+
+export interface ProxyPoolStats {
+  total_nodes: number;
+  enabled_nodes: number;
+  tested_nodes: number;
+  avg_score: number;
+  by_protocol: Record<string, number>;
+  by_country: Record<string, number>;
+  by_pool: Record<string, number>;
+  assigned_accounts: number;
+}
+
+export interface ProxyAssignment {
+  account_id: string;
+  email: string;
+  proxy_node_id: string;
+  node_name: string;
+  node_latency_ms: number;
+  total_tokens: number;
+  requests: number;
+  failed: number;
 }

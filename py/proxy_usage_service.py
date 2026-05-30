@@ -294,7 +294,9 @@ class ProxyUsageService:
                         SUM(total_tokens) AS total_tokens,
                         MAX(CASE WHEN path LIKE '/v1/images/%' OR LOWER(model) LIKE '%image%' THEN time ELSE '' END) AS last_image_used_at,
                         MAX(CASE WHEN path NOT LIKE '/v1/images/%' AND LOWER(model) NOT LIKE '%image%' THEN time ELSE '' END) AS last_chat_used_at,
-                        MAX(time) AS usage_last_used_at
+                        MAX(time) AS usage_last_used_at,
+                        COUNT(*) AS requests,
+                        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed
                     FROM proxy_usage
                     GROUP BY account_id, account_email
                     """
@@ -311,6 +313,8 @@ class ProxyUsageService:
                 "last_image_used_at": str(row[8] or ""),
                 "last_chat_used_at": str(row[9] or ""),
                 "usage_last_used_at": str(row[10] or ""),
+                "requests": int(row[11] or 0),
+                "failed": int(row[12] or 0),
             }
             account_id = str(row[0] or "")
             account_email = str(row[1] or "")

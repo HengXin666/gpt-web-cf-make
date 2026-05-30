@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   App,
@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useRegisterStore } from "../stores/registerStore";
+import { api } from "../api";
 import type { MailProvider, RegisterConfig } from "../types";
 
 const PROVIDER_TYPES = [
@@ -52,11 +53,17 @@ export default function RegisterPage() {
   const setFromSSE = useRegisterStore((s) => s.setFromSSE);
   const didLoad = useRef(false);
   const { message } = App.useApp();
+  const [proxyMode, setProxyMode] = useState("single");
+  const [registerNodes, setRegisterNodes] = useState(0);
 
   useEffect(() => {
     if (!didLoad.current) {
       didLoad.current = true;
       load();
+      // 加载代理模式和注册机池节点数
+      api.getSettings().then((s) => setProxyMode(s.proxy_mode || "single")).catch(() => {});
+      api.listProxyNodes({ pool: "register", enabled: true, page_size: 999 })
+        .then((d) => setRegisterNodes(d.total)).catch(() => {});
     }
   }, [load]);
 
@@ -197,14 +204,24 @@ export default function RegisterPage() {
                 style={{ width: "100%" }}
               />
             </Field>
-            <Field label="注册代理">
-              <Input
-                value={config.proxy}
-                placeholder="http://127.0.0.1:7890"
-                disabled={config.enabled}
-                onChange={(e) => update({ proxy: e.target.value })}
-              />
-            </Field>
+            {proxyMode === "pool" ? (
+              <Field label="注册代理">
+                <Alert
+                  type="info"
+                  showIcon
+                  message={`代理池模式已启用，注册机将自动使用注册机池中的节点（可用 ${registerNodes} 个）。`}
+                />
+              </Field>
+            ) : (
+              <Field label="注册代理">
+                <Input
+                  value={config.proxy}
+                  placeholder="http://127.0.0.1:7890"
+                  disabled={config.enabled}
+                  onChange={(e) => update({ proxy: e.target.value })}
+                />
+              </Field>
+            )}
             <Field label="注册密码" desc="注册账号时使用；留空则随机生成。">
               <Input.Password
                 value={config.fixed_password || ""}

@@ -276,7 +276,11 @@ class ReverseProxyService:
         stream: bool,
     ) -> requests.Response:
         timeout = int(self._config().get("timeout_seconds") or 120)
-        proxy = config_service.get_proxy()
+        from .proxy_pool import proxy_pool_service
+        proxy, node_info = proxy_pool_service.resolve_proxy_with_info(proxy_node_id=str(account.get("proxy_node_id") or ""))
+        if node_info:
+            import logging
+            logging.getLogger("proxy").debug(f"[反代] {account.get('email', '?')} → {node_info}")
         proxies = {"http": proxy, "https": proxy} if proxy else None
         return request_local_retry(
             lambda index: requests.request(

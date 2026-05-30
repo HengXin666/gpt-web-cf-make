@@ -16,6 +16,7 @@ DATA_DIR = ROOT_DIR / "data"
 # 默认配置
 _DEFAULT_CONFIG: dict[str, Any] = {
     "proxy": "",
+    "proxy_mode": "single",  # single | pool
     "oauth_profile": "platform",
     "oauth": {
         "client_id": "app_2SKx67EdpoN0G6j64rFvigXD",
@@ -56,6 +57,10 @@ _DEFAULT_CONFIG: dict[str, Any] = {
             "gpt-image-2",
             "sora-2",
         ],
+    },
+    "proxy_pool": {
+        "auto_refresh_enabled": False,
+        "auto_refresh_interval_minutes": 60,
     },
 }
 
@@ -113,6 +118,10 @@ class ConfigService:
         """获取代理 URL"""
         return str(self._config.get("proxy") or "").strip()
 
+    def get_proxy_mode(self) -> str:
+        """获取代理模式: single 或 pool"""
+        return str(self._config.get("proxy_mode") or "single").strip().lower()
+
     def get_oauth(self, profile: str = "platform") -> dict[str, Any]:
         """获取 OAuth 配置"""
         key = "codex_oauth" if str(profile).strip().lower() == "codex" else "oauth"
@@ -131,6 +140,10 @@ class ConfigService:
     def get_reverse_proxy_config(self) -> dict[str, Any]:
         """获取 OpenAI 兼容反代配置。"""
         return dict(self._config.get("reverse_proxy") or {})
+
+    def get_proxy_pool_config(self) -> dict[str, Any]:
+        """获取代理池配置。"""
+        return dict(self._config.get("proxy_pool") or {})
 
 
 # 全局单例

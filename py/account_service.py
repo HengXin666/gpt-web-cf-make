@@ -232,7 +232,6 @@ class AccountService:
     def refresh_account_quota(self, account_id: str) -> dict[str, Any]:
         """刷新单个账号配额和状态 - 调用 OpenAI Backend API"""
         from .backend_api import OpenAIBackendAPI, InvalidAccessTokenError
-        from .config_service import config_service
         from .shared.http_client import is_local_retryable_error, local_retryable_message
 
         account = self.get_account(account_id)
@@ -246,7 +245,10 @@ class AccountService:
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             try:
-                proxy = config_service.get_proxy()
+                from .proxy_pool import proxy_pool_service
+                proxy, node_info = proxy_pool_service.resolve_proxy_with_info(proxy_node_id=str(account.get("proxy_node_id") or ""))
+                if node_info:
+                    print(f"[quota-refresh] {account.get('email', account_id)} → 代理节点: {node_info}")
                 api_client = OpenAIBackendAPI(access_token, proxy)
                 try:
                     info = api_client.get_user_info()

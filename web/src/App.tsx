@@ -6,6 +6,7 @@ import {
   Activity,
   BarChart3,
   DatabaseZap,
+  Globe,
   Info,
   KeyRound,
   MessageSquareText,
@@ -19,12 +20,14 @@ import AccountsPage from "./pages/AccountsPage";
 import AboutPage from "./pages/AboutPage";
 import ChatPage from "./pages/ChatPage";
 import ProxyPage from "./pages/ProxyPage";
+import ProxyPoolPage from "./pages/ProxyPoolPage";
 import RegisterPage from "./pages/RegisterPage";
 import SettingsPage from "./pages/SettingsPage";
 
 const navItems = [
   { to: "/accounts", label: "账号与配额", desc: "Token 库、配额状态、批量续期", icon: Users },
   { to: "/proxy", label: "反代与用量", desc: "Base URL、API Key、请求统计", icon: BarChart3 },
+  { to: "/proxy-pool", label: "代理池", desc: "节点管理、订阅导入、账号分配", icon: Globe },
   { to: "/chat", label: "对话调试", desc: "单轮 Chat、图片、流式响应", icon: MessageSquareText },
   { to: "/register", label: "注册流水线", desc: "邮箱 Provider、线程、实时日志", icon: KeyRound },
   { to: "/settings/basic", label: "系统设置", desc: "代理、OAuth、保活", icon: Settings },
@@ -127,6 +130,8 @@ export default function App({ dark, setDark }: { dark: boolean; setDark: (v: boo
                 <Route path="/" element={<Navigate to="/accounts" replace />} />
                 <Route path="/accounts" element={<AccountsPage />} />
                 <Route path="/proxy" element={<ProxyPage />} />
+                <Route path="/proxy-pool" element={<Navigate to="/proxy-pool/nodes" replace />} />
+                <Route path="/proxy-pool/:section" element={<ProxyPoolPage />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/settings" element={<Navigate to="/settings/basic" replace />} />

@@ -39,7 +39,10 @@ class TokenRefreshService:
             return {"ok": False, "error": "no refresh_token"}
 
         config = config_service.get()
-        proxy = config_service.get_proxy()
+        from .proxy_pool import proxy_pool_service
+        proxy, node_info = proxy_pool_service.resolve_proxy_with_info(proxy_node_id=str(account.get("proxy_node_id") or ""))
+        if node_info:
+            print(f"[token-refresh] {account.get('email', account_id)} → 代理节点: {node_info}")
         profile = str(account.get("oauth_profile") or config.get("oauth_profile") or "platform")
         oauth = config_service.get_oauth(profile)
         client_id = str(account.get("oauth_client_id") or oauth.get("client_id") or "")
