@@ -60,6 +60,10 @@ export const api = {
     return request<{ accounts: Account[]; count: number }>("POST", "/api/accounts/export", { ids });
   },
 
+  exportErrors(accounts: Array<Record<string, unknown>>) {
+    return request<{ file: string; count: number; total: number }>("POST", "/api/accounts/export-errors", { accounts });
+  },
+
   batchDelete(ids: string[]) {
     return request<{ removed: number }>("POST", "/api/accounts/batch-delete", { ids });
   },
@@ -125,6 +129,32 @@ export const api = {
 
   testProxy(proxy: string, url?: string) {
     return request<import("./types").ProxyTestResult>("POST", "/api/settings/test-proxy", { proxy, url });
+  },
+
+  async *checkProxyPurityStream(proxy: string): AsyncGenerator<{ step: string; [key: string]: unknown }> {
+    const resp = await fetch("/api/proxy/check-purity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proxy }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const reader = resp.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!;
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            yield JSON.parse(line);
+          } catch { /* skip */ }
+        }
+      }
+    }
   },
 
   createRefreshJob(action: "quota" | "token", ids: string[]) {

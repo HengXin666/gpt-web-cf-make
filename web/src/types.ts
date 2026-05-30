@@ -197,6 +197,45 @@ export interface ProxyTestResult {
   error?: string;
 }
 
+export interface ProxyPurityAiService {
+  name: string;
+  url: string;
+  reachable: boolean;
+  status: number;
+  latency_ms: number;
+  error?: string;
+}
+
+export interface ProxyPurityResult {
+  score: number;
+  grade: "pure" | "clean" | "moderate" | "risky" | "dirty";
+  ip: string;
+  country: string;
+  city: string;
+  isp: string;
+  asn: string;
+  org: string;
+  lat: number;
+  lon: number;
+  ip_type: "residential" | "datacenter" | "mobile" | "unknown";
+  is_proxy: boolean;
+  is_hosting: boolean;
+  is_mobile: boolean;
+  tls: {
+    ja3: string;
+    ja4: string;
+    http2_fingerprint: string;
+    impersonate_ok: boolean;
+    source: string;
+  };
+  ipv6: { leak: boolean; ipv6: string | null; note: string };
+  dns: { leak: boolean; exit_ip?: string; note: string };
+  ai_services: ProxyPurityAiService[];
+  deductions: Array<{ reason: string; points: number }>;
+  suggestions: Array<{ issue: string; guide: string }>;
+  error?: string;
+}
+
 export interface UpstreamModelsResult {
   models: string[];
   source: string;

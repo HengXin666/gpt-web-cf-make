@@ -38,6 +38,7 @@ from py.api.register import router as register_router
 from py.api.settings import router as settings_router
 from py.api.refresh_jobs import router as refresh_jobs_router
 from py.api.proxy import router as proxy_router
+from py.api.proxy_check import router as proxy_check_router
 
 app.include_router(accounts_router)
 app.include_router(tokens_router)
@@ -45,6 +46,7 @@ app.include_router(register_router)
 app.include_router(settings_router)
 app.include_router(refresh_jobs_router)
 app.include_router(proxy_router)
+app.include_router(proxy_check_router)
 
 
 # ── 健康检查 ─────────────────────────────────────────────────────────

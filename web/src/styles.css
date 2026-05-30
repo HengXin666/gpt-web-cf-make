@@ -527,159 +527,96 @@ select {
   font-size: 12px;
 }
 
-.usage-chart {
+/* usage chart CSS removed — now using ECharts */
+
+.purity-result {
   display: grid;
   gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--panel-solid) 72%, transparent);
 }
 
-.usage-chart-head,
-.usage-chart-foot {
+.purity-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-left: 12px;
+}
+
+.purity-score {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.purity-score-num {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.purity-score-label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.purity-info {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 12px;
+  gap: 8px;
 }
 
-.usage-chart-legend,
-.usage-chart-meta,
-.usage-chart-foot {
+.purity-section {
+  display: grid;
+  gap: 6px;
+}
+
+.purity-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 6px;
 }
 
-.chart-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
-  border-radius: 999px;
+.purity-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
 }
 
-.chart-dot.input {
-  background: #2563eb;
-}
-
-.chart-dot.cached {
-  background: #f59e0b;
-}
-
-.chart-dot.output {
-  background: #10b981;
-}
-
-.chart-dot.cost {
-  background: #e11d48;
-}
-
-.usage-chart-empty {
-  min-height: 210px;
-  display: grid;
-  place-items: center;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  color: var(--muted);
-}
-
-.usage-chart-svg {
-  width: 100%;
-  height: 300px;
-  overflow: visible;
-  touch-action: none;
-}
-
-.usage-grid-line {
-  stroke: var(--line);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.usage-line {
-  fill: none;
-  stroke-width: 3;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-  transition: d 220ms ease, opacity 160ms ease;
-}
-
-.usage-line.input {
-  stroke: #2563eb;
-}
-
-.usage-line.cached {
-  stroke: #f59e0b;
-}
-
-.usage-line.output {
-  stroke: #10b981;
-}
-
-.usage-line.cost {
-  stroke: #e11d48;
-  stroke-dasharray: 5 4;
-}
-
-.usage-axis-line,
-.usage-hover-line {
-  stroke: var(--line);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.usage-hover-line {
-  stroke: var(--muted);
-  stroke-dasharray: 4 4;
-}
-
-.usage-hover-dot {
-  fill: #e11d48;
-  stroke: var(--panel-solid);
-  stroke-width: 2;
-}
-
-.usage-axis-text,
-.usage-axis-title {
-  fill: var(--muted);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 11px;
-}
-
-.usage-axis-title {
-  font-weight: 700;
-}
-
-.usage-chart-stage {
-  position: relative;
-}
-
-.usage-chart-tooltip {
-  position: absolute;
-  top: 42px;
-  z-index: 2;
-  display: grid;
-  gap: 3px;
-  min-width: 168px;
-  transform: translateX(-50%);
+.purity-suggestion {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 9px 10px;
-  background: var(--panel-solid);
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--panel-solid) 50%, transparent);
+}
+
+.purity-suggestion-issue {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text);
-  box-shadow: var(--shadow);
-  pointer-events: none;
-  font-size: 12px;
+  margin-bottom: 6px;
 }
 
-.usage-chart-tooltip strong {
+.purity-suggestion-guide {
   font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  font-family: inherit;
 }
 
-.usage-chart-tooltip em {
-  color: var(--warning);
-  font-style: normal;
+.purity-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .accounts-page {

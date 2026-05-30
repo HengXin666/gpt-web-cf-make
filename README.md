@@ -135,12 +135,6 @@ cd web && npm run build
 | POST | `/v1/images/generations` | ChatGPT Web backend 文生图 |
 | POST | `/v1/images/edits` | ChatGPT Web backend 图生图 |
 
-### 导出
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/export/chatgpt2api` | 导出为 chatgpt2api 格式 |
-| POST | `/api/export/infinite-canvas` | 导出为 infinite-canvas 渠道 |
-
 ## 邮箱 Provider
 
 | Provider | 模式 | 说明 |
@@ -155,3 +149,7 @@ cd web && npm run build
 | `gptmail` | 远程 API | GPTMail 服务 |
 | `yyds_mail` | 远程 API | YYDS 邮件服务 |
 | `ddg_mail` | 远程 API | DuckDuckGo + CF 中转 |
+
+## 特别感谢
+
+- https://github.com/basketikun/chatgpt2api

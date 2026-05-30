@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { App, Button, Card, Input, Modal, Space, Statistic, Switch, Table, Tag, Tooltip } from "antd";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { App, Button, Card, Input, Modal, Space, Statistic, Switch, Table, Tabs, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { BarChart3, Copy, KeyRound, Plus, RefreshCcw, Terminal, Trash2 } from "lucide-react";
+import ReactECharts from "echarts-for-react";
 import { api } from "../api";
 import type { ProxyKey, ProxyLiveLog, ProxyStatus, ProxyUsageAccount, ProxyUsageAttempt, ProxyUsageEvent, ProxyUsagePoint, ProxyUsageRecord, ProxyUsageSeries, ProxyUsageSummary } from "../types";
 
@@ -70,24 +71,6 @@ function formatLatency(value: number, item: ProxyUsageRecord, now: number) {
 
 function formatUsd(value?: number) {
   return `$${Number(value || 0).toFixed(6)}`;
-}
-
-function formatChartTime(value: string) {
-  const date = new Date(value);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}.${pad(date.getMonth() + 1)}.${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function smoothPath(values: number[], width: number, height: number, max: number) {
-  if (values.length === 0) return "";
-  const step = values.length > 1 ? width / (values.length - 1) : width;
-  const points = values.map((value, index) => ({ x: index * step, y: height - (value / Math.max(1, max)) * height }));
-  if (points.length === 1) return `M 0 ${points[0].y} L ${width} ${points[0].y}`;
-  return points.reduce((path, point, index) => {
-    if (index === 0) return `M ${point.x} ${point.y}`;
-    const prev = points[index - 1];
-    return `${path} C ${prev.x + step * 0.45} ${prev.y}, ${point.x - step * 0.45} ${point.y}, ${point.x} ${point.y}`;
-  }, "");
 }
 
 export default function ProxyPage() {
@@ -253,6 +236,46 @@ export default function ProxyPage() {
     { title: "最后使用", dataIndex: "last_used_at", key: "last_used_at", width: 150, render: formatDate },
   ];
 
+  const dataTabs = [
+    {
+      key: "trend",
+      label: "使用趋势",
+      children: <TokenUsageChart points={series?.points || []} totalCost={series?.total_cost_usd || 0} />,
+    },
+    {
+      key: "accounts",
+      label: "账户统计",
+      children: (
+        <Table
+          rowKey={(item) => item.account_id || item.account_email}
+          columns={accountUsageColumns}
+          dataSource={usage?.by_account || []}
+          pagination={{ pageSize: 8 }}
+          loading={loading}
+          scroll={{ x: 1180 }}
+        />
+      ),
+    },
+    {
+      key: "recent",
+      label: "最近请求",
+      children: (
+        <Table
+          rowKey={(item) => item.request_id || `${item.time}-${item.path}-${item.latency_ms}`}
+          columns={usageColumns}
+          dataSource={[...(usage?.active || []), ...(usage?.recent || [])]}
+          pagination={{ pageSize: 12 }}
+          loading={loading}
+          className="proxy-usage-table"
+          expandable={{
+            expandedRowRender: (item) => <UsageDetail item={item} />,
+            rowExpandable: (item) => Boolean(item.error || item.attempts?.length || item.stream_logs?.length || item.stream),
+          }}
+        />
+      ),
+    },
+  ];
+
   return (
     <div className="settings-stack">
       <div className="section-head">
@@ -274,11 +297,15 @@ export default function ProxyPage() {
         <Card className="surface"><Statistic title="估算成本" value={formatUsd(usage?.total_cost_usd)} /></Card>
       </div>
 
-      <Card
-        className="surface"
-        title={<span className="flex items-center gap-2"><BarChart3 className="size-4 text-blue-500" />Token 用量曲线</span>}
-      >
-        <TokenUsageChart points={series?.points || []} totalCost={series?.total_cost_usd || 0} />
+      <Card className="surface">
+        <Tabs
+          defaultActiveKey="trend"
+          items={dataTabs.map((tab) => ({
+            key: tab.key,
+            label: tab.key === "trend" ? <span className="flex items-center gap-1"><BarChart3 className="size-4" />{tab.label}</span> : tab.label,
+            children: tab.children,
+          }))}
+        />
       </Card>
 
       <Card
@@ -305,38 +332,6 @@ export default function ProxyPage() {
         extra={<Button type="primary" icon={<Plus className="size-4" />} onClick={() => setCreateOpen(true)}>新建 API Key</Button>}
       >
         <Table rowKey="id" columns={keyColumns} dataSource={keys} pagination={false} loading={loading} />
-      </Card>
-
-      <Card
-        className="surface"
-        title={<span className="flex items-center gap-2"><BarChart3 className="size-4 text-blue-500" />账号 Token 统计</span>}
-      >
-        <Table
-          rowKey={(item) => item.account_id || item.account_email}
-          columns={accountUsageColumns}
-          dataSource={usage?.by_account || []}
-          pagination={{ pageSize: 8 }}
-          loading={loading}
-          scroll={{ x: 1180 }}
-        />
-      </Card>
-
-      <Card
-        className="surface"
-        title={<span className="flex items-center gap-2"><BarChart3 className="size-4 text-blue-500" />最近请求</span>}
-      >
-        <Table
-          rowKey={(item) => item.request_id || `${item.time}-${item.path}-${item.latency_ms}`}
-          columns={usageColumns}
-          dataSource={[...(usage?.active || []), ...(usage?.recent || [])]}
-          pagination={{ pageSize: 12 }}
-          loading={loading}
-          className="proxy-usage-table"
-          expandable={{
-            expandedRowRender: (item) => <UsageDetail item={item} />,
-            rowExpandable: (item) => Boolean(item.error || item.attempts?.length || item.stream_logs?.length || item.stream),
-          }}
-        />
       </Card>
 
       <Card
@@ -387,117 +382,144 @@ export default function ProxyPage() {
 }
 
 function TokenUsageChart({ points, totalCost }: { points: ProxyUsagePoint[]; totalCost: number }) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const width = 860;
-  const height = 270;
-  const margin = { top: 18, right: 74, bottom: 36, left: 54 };
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const padded = points.length ? points : [];
-  const tokenSeries = padded.map((item) => ({
-    input: item.input_tokens + item.image_input_tokens,
-    cached: item.cached_input_tokens,
-    output: item.output_tokens + item.image_output_tokens,
-    total: item.total_tokens,
-  }));
-  const maxTokens = Math.max(1, ...tokenSeries.flatMap((item) => [item.input, item.cached, item.output, item.total]));
-  const maxCost = Math.max(0.000001, ...padded.map((item) => item.cost_usd || 0));
-  const inputPath = smoothPath(tokenSeries.map((item) => item.input), plotWidth, plotHeight, maxTokens);
-  const cachedPath = smoothPath(tokenSeries.map((item) => item.cached), plotWidth, plotHeight, maxTokens);
-  const outputPath = smoothPath(tokenSeries.map((item) => item.output), plotWidth, plotHeight, maxTokens);
-  const costPath = smoothPath(padded.map((item) => item.cost_usd || 0), plotWidth, plotHeight, maxCost);
-  const latest = padded[padded.length - 1];
-  const hover = hoverIndex !== null ? padded[hoverIndex] : null;
-  const hoverX = hoverIndex !== null && padded.length > 1 ? (hoverIndex / (padded.length - 1)) * plotWidth : 0;
-  const xLabels = padded.length <= 3 ? padded.map((_, index) => index) : [0, Math.floor((padded.length - 1) / 2), padded.length - 1];
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+
+  const option = useMemo(() => {
+    const times = points.map((p) => p.time);
+    const inputTokens = points.map((p) => p.input_tokens + p.image_input_tokens);
+    const cachedTokens = points.map((p) => p.cached_input_tokens);
+    const outputTokens = points.map((p) => p.output_tokens + p.image_output_tokens);
+    const costUsd = points.map((p) => p.cost_usd || 0);
+
+    const textColor = isDark ? "#94a3b8" : "#64748b";
+    const splitLineColor = isDark ? "#1e293b" : "#e2e8f0";
+
+    return {
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "cross" },
+        backgroundColor: isDark ? "#1e293b" : "#fff",
+        borderColor: isDark ? "#334155" : "#e2e8f0",
+        textStyle: { color: isDark ? "#e2e8f0" : "#1e293b", fontSize: 12 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        formatter(params: any) {
+          if (!params?.length) return "";
+          const time = params[0].axisValueLabel;
+          const lines = params.map((p: any) => {
+            const val = p.seriesName === "成本" ? `$${p.value.toFixed(6)}` : p.value.toLocaleString();
+            return `${p.marker} ${p.seriesName}: ${val}`;
+          });
+          return `<strong>${time}</strong><br/>${lines.join("<br/>")}`;
+        },
+      },
+      legend: {
+        data: ["输入", "缓存命中", "输出", "成本"],
+        top: 4,
+        textStyle: { color: textColor, fontSize: 12 },
+      },
+      grid: { left: 60, right: 60, top: 40, bottom: 30 },
+      xAxis: {
+        type: "category",
+        data: times,
+        axisLabel: {
+          color: textColor,
+          fontSize: 11,
+          formatter(value: string) {
+            const d = new Date(value);
+            return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+          },
+        },
+        axisLine: { lineStyle: { color: isDark ? "#334155" : "#cbd5e1" } },
+      },
+      yAxis: [
+        {
+          type: "value",
+          name: "Tokens",
+          position: "left",
+          nameTextStyle: { color: textColor },
+          axisLabel: { color: textColor, fontSize: 11 },
+          splitLine: { lineStyle: { color: splitLineColor } },
+        },
+        {
+          type: "value",
+          name: "USD",
+          position: "right",
+          nameTextStyle: { color: textColor },
+          axisLabel: {
+            color: textColor,
+            fontSize: 11,
+            formatter: (v: number) => `$${v.toFixed(4)}`,
+          },
+          splitLine: { show: false },
+        },
+      ],
+      series: [
+        {
+          name: "输入",
+          type: "line",
+          smooth: true,
+          symbol: "circle",
+          symbolSize: 4,
+          data: inputTokens,
+          lineStyle: { width: 2 },
+          itemStyle: { color: "#2563eb" },
+          areaStyle: { color: "rgba(37,99,235,0.08)" },
+        },
+        {
+          name: "缓存命中",
+          type: "line",
+          smooth: true,
+          symbol: "circle",
+          symbolSize: 4,
+          data: cachedTokens,
+          lineStyle: { width: 2 },
+          itemStyle: { color: "#f59e0b" },
+          areaStyle: { color: "rgba(245,158,11,0.08)" },
+        },
+        {
+          name: "输出",
+          type: "line",
+          smooth: true,
+          symbol: "circle",
+          symbolSize: 4,
+          data: outputTokens,
+          lineStyle: { width: 2 },
+          itemStyle: { color: "#10b981" },
+          areaStyle: { color: "rgba(16,185,129,0.08)" },
+        },
+        {
+          name: "成本",
+          type: "line",
+          smooth: true,
+          yAxisIndex: 1,
+          symbol: "circle",
+          symbolSize: 4,
+          data: costUsd,
+          lineStyle: { width: 2, type: "dashed" },
+          itemStyle: { color: "#e11d48" },
+        },
+      ],
+      animation: true,
+      animationDuration: 300,
+    };
+  }, [points, isDark]);
+
+  if (points.length === 0) {
+    return <div style={{ textAlign: "center", padding: 48, color: isDark ? "#64748b" : "#94a3b8" }}>暂无用量数据</div>;
+  }
+
   return (
-    <div className="usage-chart">
-      <div className="usage-chart-head">
-        <div className="usage-chart-legend">
-          <span><i className="chart-dot input" />输入</span>
-          <span><i className="chart-dot cached" />缓存命中</span>
-          <span><i className="chart-dot output" />输出</span>
-          <span><i className="chart-dot cost" />成本</span>
-        </div>
-        <div className="usage-chart-meta">
-          <span>窗口成本 {formatUsd(totalCost)}</span>
-          {padded.some((item) => item.estimated) && <Tag color="gold">含估算</Tag>}
-        </div>
+    <div>
+      <ReactECharts
+        option={option}
+        style={{ height: 300, width: "100%" }}
+        notMerge
+        lazyUpdate
+      />
+      <div style={{ textAlign: "right", fontSize: 12, color: isDark ? "#64748b" : "#94a3b8", marginTop: 4 }}>
+        窗口成本 {formatUsd(totalCost)}
+        {points.some((item) => item.estimated) && <Tag color="gold" style={{ marginLeft: 8 }}>含估算</Tag>}
       </div>
-      {padded.length === 0 ? (
-        <div className="usage-chart-empty">暂无用量数据</div>
-      ) : (
-        <div className="usage-chart-stage">
-          <svg
-            viewBox={`0 0 ${width} ${height}`}
-            className="usage-chart-svg"
-            onMouseMove={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              const scaleX = width / rect.width;
-              const x = (event.clientX - rect.left) * scaleX - margin.left;
-              const ratio = Math.max(0, Math.min(1, x / plotWidth));
-              setHoverIndex(Math.round(ratio * (padded.length - 1)));
-            }}
-            onMouseLeave={() => setHoverIndex(null)}
-          >
-            <g transform={`translate(${margin.left}, ${margin.top})`}>
-              {[0, 0.25, 0.5, 0.75, 1].map((line) => (
-                <line key={line} x1="0" x2={plotWidth} y1={plotHeight * line} y2={plotHeight * line} className="usage-grid-line" />
-              ))}
-              <path d={inputPath} className="usage-line input" />
-              <path d={cachedPath} className="usage-line cached" />
-              <path d={outputPath} className="usage-line output" />
-              <path d={costPath} className="usage-line cost" />
-              {hover && (
-                <>
-                  <line x1={hoverX} x2={hoverX} y1="0" y2={plotHeight} className="usage-hover-line" />
-                  <circle cx={hoverX} cy={plotHeight - ((hover.cost_usd || 0) / maxCost) * plotHeight} r="4" className="usage-hover-dot cost" />
-                </>
-              )}
-            </g>
-            <line x1={margin.left} x2={margin.left} y1={margin.top} y2={margin.top + plotHeight} className="usage-axis-line" />
-            <line x1={margin.left + plotWidth} x2={margin.left + plotWidth} y1={margin.top} y2={margin.top + plotHeight} className="usage-axis-line" />
-            {[0, 0.5, 1].map((tick) => (
-              <g key={`token-${tick}`}>
-                <text x={margin.left - 10} y={margin.top + plotHeight - tick * plotHeight + 4} className="usage-axis-text" textAnchor="end">{Math.round(maxTokens * tick)}</text>
-                <text x={margin.left + plotWidth + 10} y={margin.top + plotHeight - tick * plotHeight + 4} className="usage-axis-text" textAnchor="start">{formatUsd(maxCost * tick)}</text>
-              </g>
-            ))}
-            {xLabels.map((index) => (
-              <text
-                key={index}
-                x={margin.left + (padded.length > 1 ? (index / (padded.length - 1)) * plotWidth : 0)}
-                y={height - 8}
-                className="usage-axis-text"
-                textAnchor={index === 0 ? "start" : index === padded.length - 1 ? "end" : "middle"}
-              >
-                {formatChartTime(padded[index].time)}
-              </text>
-            ))}
-            <text x={margin.left} y="12" className="usage-axis-title">tokens</text>
-            <text x={width - margin.right} y="12" className="usage-axis-title" textAnchor="end">cost</text>
-          </svg>
-          {hover && (
-            <div className="usage-chart-tooltip" style={{ left: `${((margin.left + hoverX) / width) * 100}%` }}>
-              <strong>{formatChartTime(hover.time)}</strong>
-              <span>输入 {hover.input_tokens + hover.image_input_tokens}</span>
-              <span>缓存 {hover.cached_input_tokens}</span>
-              <span>输出 {hover.output_tokens + hover.image_output_tokens}</span>
-              <span>成本 {formatUsd(hover.cost_usd)}</span>
-              {hover.estimated && <em>含估算</em>}
-            </div>
-          )}
-        </div>
-      )}
-      {latest && (
-        <div className="usage-chart-foot">
-          <span>最新：{new Date(latest.time).toLocaleTimeString("zh-CN", { hour12: false })}</span>
-          <span>输入 {latest.input_tokens + latest.image_input_tokens}</span>
-          <span>缓存 {latest.cached_input_tokens}</span>
-          <span>输出 {latest.output_tokens + latest.image_output_tokens}</span>
-          <span>成本 {formatUsd(latest.cost_usd)}</span>
-        </div>
-      )}
     </div>
   );
 }

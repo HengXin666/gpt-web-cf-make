@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -101,3 +104,34 @@ async def update_account(account_id: str, body: UpdateAccountRequest):
     if not result:
         return {"error": "account not found"}
     return result
+
+
+class ExportErrorsRequest(BaseModel):
+    accounts: list[dict[str, Any]]
+
+
+@router.post("/api/accounts/export-errors")
+async def export_errors(body: ExportErrorsRequest):
+    """将异常账号追加导出到 data/error/YY-MM-DD.json"""
+    tz = timezone(timedelta(hours=8))
+    date_str = datetime.now(tz).strftime("%y-%m-%d")
+    error_dir = Path("data/error")
+    error_dir.mkdir(parents=True, exist_ok=True)
+    file_path = error_dir / f"{date_str}.json"
+
+    # 读取已有数据
+    existing: list[dict[str, Any]] = []
+    if file_path.exists():
+        try:
+            existing = json.loads(file_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = []
+
+    existing_ids = {a.get("id") for a in existing}
+    new_accounts = [a for a in body.accounts if a.get("id") not in existing_ids]
+    if not new_accounts:
+        return {"file": str(file_path), "count": 0, "total": len(existing)}
+
+    merged = existing + new_accounts
+    file_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"file": str(file_path), "count": len(new_accounts), "total": len(merged)}

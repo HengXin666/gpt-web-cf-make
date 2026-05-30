@@ -12,6 +12,7 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
+  Stethoscope,
   Trash2,
   Zap,
 } from "lucide-react";
@@ -219,6 +220,38 @@ export default function AccountsPage() {
     });
   };
 
+  const handleTestAll = () => {
+    if (accounts.length === 0) {
+      message.warning("当前没有可测试的账号");
+      return;
+    }
+    Modal.confirm({
+      title: `测试全部 ${accounts.length} 个账号？`,
+      content: "将调用 OpenAI Backend API 验证每个账号的可用性，异常账号会自动导出到 data/error/ 目录。",
+      okText: "开始测试",
+      cancelText: "取消",
+      onOk: async () => {
+        await withAction("test-all", async () => {
+          const ids = accounts.map((a) => a.id);
+          const r = await api.batchRefreshQuota(ids);
+          message.success(`测试完成：${r.refreshed} 成功，${r.failed} 失败`);
+          await refresh();
+
+          // 收集异常账号并导出到 error 文件
+          const failedAccounts = store.accounts.filter((a) => ids.includes(a.id) && a.status === "abnormal");
+          if (failedAccounts.length > 0) {
+            try {
+              const res = await api.exportErrors(failedAccounts as unknown as Array<Record<string, unknown>>);
+              message.info(`已导出 ${res.count} 个异常账号到 ${res.file}`);
+            } catch (e) {
+              message.warning("异常账号导出失败：" + (e as Error).message);
+            }
+          }
+        });
+      },
+    });
+  };
+
   const exportCount = useMemo(() => {
     try {
       return exportText ? JSON.parse(exportText).length : 0;
@@ -367,6 +400,7 @@ export default function AccountsPage() {
             ]}
           />
           <Button icon={<RefreshCcw className="size-4" />} onClick={refresh} loading={loading}>刷新列表</Button>
+          <Button icon={<Stethoscope className="size-4" />} onClick={handleTestAll} loading={activeAction === "test-all"}>测试全部</Button>
           <div className="toolbar-spacer" />
           <span className="text-sm text-slate-500">共 {total} 个账号</span>
         </div>

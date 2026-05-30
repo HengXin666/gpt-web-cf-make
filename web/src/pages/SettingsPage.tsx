@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, App, Button, Card, Input, InputNumber, Select, Space, Tag } from "antd";
 import { NavLink, Navigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Braces, KeyRound, Network, RefreshCcw, Save, Settings2 } from "lucide-react";
+import { Braces, CheckCircle2, KeyRound, Loader, Network, RefreshCcw, Save, Settings2, ShieldCheck, XCircle } from "lucide-react";
 import { api } from "../api";
 import { useSettingsStore } from "../stores/settingsStore";
-import type { AppConfig, ProxyTestResult } from "../types";
+import type { AppConfig, ProxyPurityResult, ProxyTestResult } from "../types";
 
 type Section = "basic" | "oauth" | "refresh" | "proxy";
 
@@ -48,6 +48,18 @@ export default function SettingsPage() {
   const [testingProxy, setTestingProxy] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [proxyResult, setProxyResult] = useState<ProxyTestResult | null>(null);
+  type PurityStream = {
+    ip?: Record<string, unknown>;
+    tls?: Record<string, unknown>;
+    ai: Array<Record<string, unknown>>;
+    ipv6?: Record<string, unknown>;
+    dns?: Record<string, unknown>;
+    done?: ProxyPurityResult;
+    error?: string;
+  };
+  const emptyStream: PurityStream = { ai: [] };
+  const [purityStream, setPurityStream] = useState<PurityStream | null>(null);
+  const [checkingPurity, setCheckingPurity] = useState(false);
 
   useEffect(() => {
     if (!didLoad.current) {
@@ -105,6 +117,31 @@ export default function SettingsPage() {
     }
   };
 
+  const checkPurity = async () => {
+    if (!draft) return;
+    setCheckingPurity(true);
+    setPurityStream({ ...emptyStream });
+    try {
+      for await (const event of api.checkProxyPurityStream(String(draft.proxy || ""))) {
+        setPurityStream((prev) => {
+          const s = { ...(prev || { ...emptyStream }) };
+          if (event.step === "ip") s.ip = event as Record<string, unknown>;
+          else if (event.step === "tls") s.tls = event as Record<string, unknown>;
+          else if (event.step === "ai") s.ai = [...s.ai, event as Record<string, unknown>];
+          else if (event.step === "ipv6") s.ipv6 = event as Record<string, unknown>;
+          else if (event.step === "dns") s.dns = event as Record<string, unknown>;
+          else if (event.step === "done") s.done = event as unknown as ProxyPurityResult;
+          else if (event.step === "error") s.error = (event as Record<string, unknown>).error as string;
+          return s;
+        });
+      }
+    } catch (e) {
+      setPurityStream({ ...emptyStream, error: (e as Error).message });
+    } finally {
+      setCheckingPurity(false);
+    }
+  };
+
   const currentTitle = useMemo(() => sections.find((item) => item.key === section)?.label || "系统设置", [section]);
 
   if (!["basic", "oauth", "refresh", "proxy"].includes(section)) {
@@ -150,6 +187,7 @@ export default function SettingsPage() {
               actions={
                 <>
                   <Button onClick={testProxy} loading={testingProxy}>测试代理延迟</Button>
+                  <Button onClick={checkPurity} loading={checkingPurity} icon={<ShieldCheck className="size-4" />}>纯净度检测</Button>
                   <Button type="primary" icon={<Save className="size-4" />} loading={saving} onClick={() => saveSection({ proxy: draft.proxy, oauth_profile: draft.oauth_profile, http: draft.http })}>
                     保存
                   </Button>
@@ -188,6 +226,12 @@ export default function SettingsPage() {
                   <span className="text-sm text-slate-500">HTTP {proxyResult.status || "-"}</span>
                   <span className="text-sm text-slate-500">协议 {proxyResult.http_version === "http1.1" ? "HTTP/1.1" : "HTTP/2.0"}</span>
                   {proxyResult.error && <span className="text-sm text-red-500">{proxyResult.error}</span>}
+                </div>
+              )}
+              {purityStream && !purityStream.error && <PurityStreamView stream={purityStream} checking={checkingPurity} />}
+              {purityStream?.error && (
+                <div className="selection-bar mt-4">
+                  <span className="text-sm text-red-500">检测失败：{purityStream.error}</span>
                 </div>
               )}
             </SettingsCard>
@@ -309,6 +353,137 @@ export default function SettingsPage() {
           </motion.div>
         )}
       </div>
+    </div>
+  );
+}
+
+function PurityStreamView({ stream, checking }: { stream: { ip?: Record<string, unknown>; tls?: Record<string, unknown>; ai: Array<Record<string, unknown>>; ipv6?: Record<string, unknown>; dns?: Record<string, unknown>; done?: ProxyPurityResult; error?: string }; checking: boolean }) {
+  const done = stream.done;
+  const gradeColors: Record<string, string> = { pure: "#10b981", clean: "#22c55e", moderate: "#f59e0b", risky: "#f97316", dirty: "#ef4444" };
+  const gradeLabels: Record<string, string> = { pure: "纯净", clean: "干净", moderate: "一般", risky: "有风险", dirty: "不干净" };
+  const ipTypeLabels: Record<string, string> = { residential: "住宅", datacenter: "机房", mobile: "移动网络", unknown: "未知" };
+  const pending = <span className="purity-pending"><Loader className="size-3 animate-spin" /> 检测中…</span>;
+
+  return (
+    <div className="purity-result mt-4">
+      {/* IP 信息 */}
+      {stream.ip && !(stream.ip as Record<string, unknown>).error ? (
+        <div className="purity-header" style={{ borderLeft: `4px solid ${done ? gradeColors[done.grade] : "#64748b"}` }}>
+          {done ? (
+            <div className="purity-score" style={{ color: gradeColors[done.grade] }}>
+              <span className="purity-score-num">{done.score}</span>
+              <span className="purity-score-label">/100</span>
+            </div>
+          ) : (
+            <div className="purity-score" style={{ color: "#64748b" }}>
+              <Loader className="size-5 animate-spin" />
+            </div>
+          )}
+          <div className="purity-info">
+            {done && <Tag color={gradeColors[done.grade]}>{gradeLabels[done.grade]}</Tag>}
+            <span className="text-sm">{String(stream.ip.query || "")} · {String(stream.ip.country || "")} {String(stream.ip.city || "")}</span>
+            <span className="text-xs text-slate-500">{String(stream.ip.isp || "")} · {String(stream.ip.as || "")}</span>
+          </div>
+          <div className="purity-tags">
+            {(() => {
+              const ipType = done?.ip_type || (stream.ip.hosting ? "datacenter" : stream.ip.mobile ? "mobile" : stream.ip.proxy ? "datacenter" : "residential");
+              return <Tag color={ipType === "residential" ? "green" : ipType === "datacenter" ? "orange" : "default"}>{ipTypeLabels[ipType]}</Tag>;
+            })()}
+            {Boolean(stream.ip.proxy) && <Tag color="orange">标记为代理</Tag>}
+            {Boolean(stream.ip.hosting) && <Tag color="orange">机房 IP</Tag>}
+          </div>
+        </div>
+      ) : stream.ip?.error ? (
+        <div className="purity-header" style={{ borderLeft: "4px solid #ef4444" }}>
+          <XCircle className="size-5 text-red-500" />
+          <span className="text-sm text-red-500">{String(stream.ip.error)}</span>
+        </div>
+      ) : (
+        <div className="purity-header">{pending}</div>
+      )}
+
+      {/* TLS 指纹 */}
+      <div className="purity-section">
+        <strong className="text-xs uppercase text-slate-400">TLS 指纹</strong>
+        {stream.tls ? (
+          <div className="purity-check-row">
+            {(() => {
+              const tls = stream.tls;
+              if (tls.ja3 || tls.ja4) return <CheckCircle2 className="size-4 text-green-500" />;
+              if (tls.source === "https-ok") return <CheckCircle2 className="size-4 text-green-500" />;
+              if (tls._ok) return <CheckCircle2 className="size-4 text-yellow-500" />;
+              return <XCircle className="size-4 text-red-500" />;
+            })()}
+            <span className="text-sm">
+              {(() => {
+                const tls = stream.tls;
+                if (tls.ja3 || tls.ja4) return `指纹伪装生效${tls.source ? ` (${tls.source})` : ""}`;
+                if (tls.source === "https-ok") return "HTTPS 连通正常，指纹检测源不可达";
+                if (tls._ok) return "TLS 握手正常";
+                return "TLS 异常";
+              })()}
+            </span>
+            {stream.tls.ja4 ? <span className="text-xs text-slate-400 ml-auto">JA4: {String(stream.tls.ja4).slice(0, 32)}</span> : null}
+          </div>
+        ) : pending}
+      </div>
+
+      {/* AI 服务 */}
+      <div className="purity-section">
+        <strong className="text-xs uppercase text-slate-400">AI 服务可达性</strong>
+        {stream.ai.length > 0 ? stream.ai.map((svc) => (
+          <div key={String(svc.name)} className="purity-check-row">
+            {svc.reachable ? <CheckCircle2 className="size-4 text-green-500" /> : <XCircle className="size-4 text-red-500" />}
+            <span className="text-sm">{String(svc.name)}</span>
+            <span className="text-xs text-slate-400 ml-auto">
+              {svc.reachable ? `${svc.latency_ms}ms · HTTP ${svc.status}` : `不可达 · ${svc.latency_ms}ms`}
+            </span>
+          </div>
+        )) : checking ? pending : <div className="text-xs text-slate-400">未检测</div>}
+      </div>
+
+      {/* 泄露检查 */}
+      <div className="purity-section">
+        <strong className="text-xs uppercase text-slate-400">泄露检查</strong>
+        {stream.ipv6 ? (
+          <div className="purity-check-row">
+            {stream.ipv6.leak ? <XCircle className="size-4 text-red-500" /> : <CheckCircle2 className="size-4 text-green-500" />}
+            <span className="text-sm">IPv6: {String(stream.ipv6.note)}</span>
+          </div>
+        ) : pending}
+        {stream.dns ? (
+          <div className="purity-check-row">
+            {stream.dns.leak ? <XCircle className="size-4 text-red-500" /> : <CheckCircle2 className="size-4 text-green-500" />}
+            <span className="text-sm">DNS: {String(stream.dns.note)}</span>
+          </div>
+        ) : checking && stream.ipv6 ? pending : null}
+      </div>
+
+      {/* 扣分 + 修复指南（仅完成时显示） */}
+      {done && <>
+        {done.deductions.length > 0 && (
+          <div className="purity-section">
+            <strong className="text-xs uppercase text-slate-400">扣分明细</strong>
+            {done.deductions.map((d, i) => (
+              <div key={i} className="purity-check-row">
+                <span className="text-sm">{d.reason}</span>
+                <span className="text-sm text-red-500 ml-auto">{d.points} 分</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {done.suggestions.length > 0 && (
+          <div className="purity-section">
+            <strong className="text-xs uppercase text-slate-400">修复指南</strong>
+            {done.suggestions.map((s, i) => (
+              <div key={i} className="purity-suggestion">
+                <div className="purity-suggestion-issue">{s.issue}</div>
+                <pre className="purity-suggestion-guide">{s.guide}</pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </>}
     </div>
   );
 }
