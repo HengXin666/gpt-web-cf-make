@@ -6,7 +6,7 @@ import contextvars
 from threading import RLock
 from typing import Any
 
-from ..account_service import account_service as base_account_service
+from ..services.account_service import account_service as base_account_service
 from ..shared.models import _now
 
 
@@ -117,7 +117,12 @@ class AdapterAccountService:
             return
         self._finish_attempt(access_token, success, "" if success else "image request failed")
         updates: dict[str, Any] = {"last_used_at": _now()}
-        if not success:
+        if success:
+            # 成功生成图片后递减本地配额, 避免频繁调用远程刷新
+            current_quota = self._quota_value(account)
+            if current_quota > 0:
+                updates["quota"] = current_quota - 1
+        else:
             updates["refresh_error"] = "last image request failed"
         base_account_service.update_account(account_id, updates)
 

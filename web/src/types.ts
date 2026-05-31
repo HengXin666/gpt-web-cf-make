@@ -312,6 +312,10 @@ export interface ProxyUsageRecord {
   error?: string;
   attempt_count?: number;
   attempts?: ProxyUsageAttempt[];
+  request_text?: string;
+  response_text?: string;
+  request_image_hashes?: string[];
+  response_image_hashes?: string[];
 }
 
 export interface ProxyUsageAttempt {
@@ -466,6 +470,14 @@ export interface ProxyPoolStats {
   by_country: Record<string, number>;
   by_pool: Record<string, number>;
   assigned_accounts: number;
+}
+
+export interface NodeUsageStat {
+  proxy_node_id: string;
+  total_requests: number;
+  failed_requests: number;
+  today_requests: number;
+  last_request_time: string;
 }
 
 export interface ProxyAssignment {

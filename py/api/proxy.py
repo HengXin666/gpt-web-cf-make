@@ -10,12 +10,12 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..account_service import account_service
-from ..config_service import config_service
-from ..proxy_auth_service import proxy_auth_service
-from ..proxy_live_service import proxy_live_service
-from ..proxy_usage_service import proxy_usage_service
-from ..reverse_proxy_service import reverse_proxy_service
+from ..services.account_service import account_service
+from ..services.config_service import config_service
+from ..services.proxy_auth_service import proxy_auth_service
+from ..services.proxy_live_service import proxy_live_service
+from ..services.proxy_usage_service import proxy_usage_service
+from ..services.reverse_proxy_service import reverse_proxy_service
 
 router = APIRouter()
 
@@ -123,6 +123,17 @@ async def proxy_events(request: Request):
             proxy_live_service.unsubscribe(subscriber)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.get("/api/proxy/image/{image_hash:path}")
+async def get_proxy_image(image_hash: str):
+    """获取去重存储的代理请求图片"""
+    from ..services.proxy_usage_service import image_dedup_store
+    from fastapi.responses import Response
+    data = image_dedup_store.get(image_hash)
+    if data is None:
+        return {"error": "image not found"}
+    return Response(content=data, media_type="image/png")
 
 
 @router.api_route("/v1", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

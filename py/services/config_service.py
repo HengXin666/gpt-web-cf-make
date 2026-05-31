@@ -9,7 +9,7 @@ from threading import RLock
 from typing import Any
 
 # 项目根目录 (gpt-web-cf-make/)
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_FILE = ROOT_DIR / "config.json"
 DATA_DIR = ROOT_DIR / "data"
 
@@ -61,6 +61,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "proxy_pool": {
         "auto_refresh_enabled": False,
         "auto_refresh_interval_minutes": 60,
+        "auto_assign_new_accounts": False,
     },
 }
 

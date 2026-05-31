@@ -121,7 +121,7 @@ def create_session(proxy: str = "") -> Any:
 def get_curl_http_version() -> Any:
     """将配置转换为 curl_cffi 的 HTTP 版本枚举。"""
     from curl_cffi.const import CurlHttpVersion
-    from ..config_service import config_service
+    from ..services.config_service import config_service
 
     return CurlHttpVersion.V1_1 if config_service.get_http_version() == "http1.1" else CurlHttpVersion.V2_0
 

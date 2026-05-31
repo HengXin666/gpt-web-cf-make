@@ -772,6 +772,12 @@ select {
   grid-template-columns: 224px minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+  width: 100%;
+}
+
+.settings-stack {
+  min-width: 0;
+  overflow: visible;
 }
 
 .settings-index {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Empty, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import type { NodeUsageStat } from "../types";
 import { NavLink, Navigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -85,7 +86,17 @@ export default function ProxyPoolPage() {
   const [assignSearch, setAssignSearch] = useState("");
 
   // Auto-refresh
-  const [autoRefresh, setAutoRefresh] = useState({ enabled: false, interval_minutes: 60, running: false });
+  const [autoRefresh, setAutoRefresh] = useState<{ enabled: boolean; interval_minutes: number; running: boolean; auto_assign_new_accounts?: boolean }>({ enabled: false, interval_minutes: 60, running: false });
+
+  const [nodeUsage, setNodeUsage] = useState<Record<string, NodeUsageStat>>({});
+
+  const loadUsage = () => {
+    api.getNodeUsageStats().then((stats) => {
+      const map: Record<string, NodeUsageStat> = {};
+      stats.forEach((s) => { map[s.proxy_node_id] = s; });
+      setNodeUsage(map);
+    }).catch(() => {});
+  };
 
   useEffect(() => {
     if (!didLoad.current) {
@@ -108,8 +119,14 @@ export default function ProxyPoolPage() {
       store.loadStats();
       store.loadAssignments();
       api.getProxyAutoRefresh().then(setAutoRefresh).catch(() => {});
+      loadUsage();
     }
   }, [store]);
+
+  // 每次节点刷新后同步用量
+  useEffect(() => {
+    if (store.nodes.length > 0) loadUsage();
+  }, [store.nodes]);
 
   const filteredNodes = useMemo(() => {
     let items = store.nodes;
@@ -284,13 +301,12 @@ export default function ProxyPoolPage() {
       dataIndex: "name",
       key: "name",
       ellipsis: true,
-      width: 160,
       sorter: (a, b) => (a.name || a.server).localeCompare(b.name || b.server),
       sortOrder: sortField === "name" ? sortOrder : undefined,
       render: (v: string, r) => (
-        <Space direction="vertical" size={0}>
-          <span className="font-medium">{v || r.server}</span>
-          {r.subscription_id && <Tag>订阅</Tag>}
+        <Space direction="vertical" size={0} className="w-full overflow-hidden">
+          <span className="font-medium truncate">{v || r.server}</span>
+          {r.subscription_id && <Tag className="shrink-0">订阅</Tag>}
         </Space>
       ),
     },
@@ -298,64 +314,61 @@ export default function ProxyPoolPage() {
       title: "协议",
       dataIndex: "protocol",
       key: "protocol",
-      width: 90,
       render: (v: string) => (
-        <Tag color={protocolColors[v] || "default"}>{v}</Tag>
+        <Tag color={protocolColors[v] || "default"} className="shrink-0">{v}</Tag>
       ),
-      filters: [
-        { text: "HTTP", value: "http" },
-        { text: "HTTPS", value: "https" },
-        { text: "SOCKS5", value: "socks5" },
-        { text: "SS", value: "ss" },
-        { text: "VMess", value: "vmess" },
-        { text: "VLESS", value: "vless" },
-        { text: "Trojan", value: "trojan" },
-        { text: "Hysteria2", value: "hysteria2" },
-      ],
-      onFilter: (value, record) => record.protocol === value,
     },
     {
       title: "池",
       dataIndex: "pool",
       key: "pool",
-      width: 80,
-      filters: [
-        { text: "反代", value: "api" },
-        { text: "注册机", value: "register" },
-      ],
-      onFilter: (value, record) => record.pool === value,
       render: (v: string) => (
-        <Tag color={v === "api" ? "blue" : "green"}>{v === "api" ? "反代" : "注册机"}</Tag>
+        <Tag color={v === "api" ? "blue" : "green"} className="shrink-0">{v === "api" ? "反代" : "注册机"}</Tag>
       ),
+    },
+    {
+      title: "GPT 请求",
+      key: "gpt_usage",
+      render: (_, r) => {
+        const u = nodeUsage[r.id];
+        if (!u) return <span className="text-slate-400">-</span>;
+        const last = u.last_request_time ? new Date(u.last_request_time).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
+        return (
+          <Tooltip title={`最后: ${last}`}>
+            <span className="text-sm whitespace-nowrap">
+              <span className="font-medium">{u.total_requests}</span>
+              <span className="text-xs text-green-500 ml-1">(+{u.today_requests})</span>
+              {u.failed_requests > 0 && <span className="text-xs text-red-500 ml-1">({u.failed_requests}失败)</span>}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "服务器",
       key: "server",
-      width: 180,
       ellipsis: true,
       sorter: (a, b) => `${a.server}:${a.port}`.localeCompare(`${b.server}:${b.port}`),
-      render: (_, r) => `${r.server}:${r.port}`,
+      render: (_, r) => <span className="truncate">{r.server}:{r.port}</span>,
     },
     {
       title: "延迟",
       dataIndex: "latency_ms",
       key: "latency",
-      width: 90,
       sorter: (a, b) => (a.latency_ms < 0 ? 99999 : a.latency_ms) - (b.latency_ms < 0 ? 99999 : b.latency_ms),
       sortOrder: sortField === "latency_ms" ? sortOrder : undefined,
       render: (v: number) => {
         const { text, color } = formatLatency(v);
-        return <span style={{ color }}>{text}</span>;
+        return <span style={{ color }} className="whitespace-nowrap">{text}</span>;
       },
     },
     {
       title: "纯净度",
       key: "purity",
-      width: 110,
       sorter: (a, b) => (a.score < 0 ? -1 : a.score) - (b.score < 0 ? -1 : b.score),
       sortOrder: sortField === "score" ? sortOrder : undefined,
       render: (_, r) => {
-        if (r.score < 0) return <span className="text-slate-400">未测试</span>;
+        if (r.score < 0) return <span className="text-slate-400 whitespace-nowrap">未测试</span>;
         return (
           <Space size={4}>
             <Tag color={gradeColors[r.grade] || "#94a3b8"}>{r.score}</Tag>
@@ -367,20 +380,15 @@ export default function ProxyPoolPage() {
     {
       title: "位置",
       key: "location",
-      width: 150,
       ellipsis: true,
       render: (_, r) => (
-        <Space direction="vertical" size={0}>
-          <span>{r.country} {r.city}</span>
-          <span className="text-xs text-slate-400">{r.isp}</span>
-        </Space>
+        <span className="truncate">{r.country} {r.city} · {r.isp}</span>
       ),
     },
     {
       title: "启用",
       dataIndex: "enabled",
       key: "enabled",
-      width: 70,
       render: (v: boolean, r) => (
         <Switch size="small" checked={v} onChange={(checked) => store.updateNode(r.id, { enabled: checked })} />
       ),
@@ -388,8 +396,6 @@ export default function ProxyPoolPage() {
     {
       title: "操作",
       key: "actions",
-      width: 200,
-      fixed: "right",
       render: (_, r) => (
         <Space size="small">
           <Tooltip title="测试延迟">
@@ -453,20 +459,19 @@ export default function ProxyPoolPage() {
   );
 
   const assignmentColumns: ColumnsType<ProxyAssignment & { usage?: Record<string, unknown> }> = [
-    { title: "账号", dataIndex: "email", key: "email", ellipsis: true, width: 200 },
+    { title: "账号", dataIndex: "email", key: "email", ellipsis: true },
     {
       title: "分配节点",
       key: "node",
-      width: 340,
       render: (_, r) => (
-        <span>
+        <span className="flex items-center gap-1">
           {r.node_name ? (
-            <Tag color="blue">{r.node_name}</Tag>
+            <Tag color="blue" className="shrink-0">{r.node_name}</Tag>
           ) : (
-            <Tag color="default">未分配</Tag>
+            <Tag color="default" className="shrink-0">未分配</Tag>
           )}
           <Select
-            style={{ width: 220, marginLeft: 4 }}
+            style={{ flex: 1, minWidth: 140 }}
             size="small"
             placeholder="更换节点…"
             value={r.proxy_node_id || undefined}
@@ -483,41 +488,44 @@ export default function ProxyPoolPage() {
     {
       title: "延迟",
       key: "latency",
-      width: 70,
+      sorter: (a, b) => (a.node_latency_ms || 99999) - (b.node_latency_ms || 99999),
       render: (_, r) => {
         const node = store.nodes.find((n) => n.id === r.proxy_node_id);
         if (!node) return <span className="text-slate-400">-</span>;
         const { text, color } = formatLatency(node.latency_ms);
-        return <span style={{ color }}>{text}</span>;
+        return <span style={{ color }} className="whitespace-nowrap">{text}</span>;
       },
     },
     {
       title: "Token数",
       key: "tokens",
-      width: 80,
-      render: (_, r) => <span className="text-sm">{r.total_tokens != null ? Number(r.total_tokens).toLocaleString() : "-"}</span>,
+      sorter: (a, b) => (a.total_tokens || 0) - (b.total_tokens || 0),
+      render: (_, r) => <span className="text-sm whitespace-nowrap">{r.total_tokens != null ? Number(r.total_tokens).toLocaleString() : "-"}</span>,
     },
     {
       title: "请求数",
       key: "requests",
-      width: 70,
-      render: (_, r) => <span className="text-sm">{r.requests != null ? r.requests : "-"}</span>,
+      sorter: (a, b) => (a.requests || 0) - (b.requests || 0),
+      render: (_, r) => <span className="text-sm whitespace-nowrap">{r.requests != null ? r.requests : "-"}</span>,
     },
     {
       title: "失败率",
       key: "failRate",
-      width: 80,
+      sorter: (a, b) => {
+        const ra = a.requests ? (a.failed || 0) / a.requests : 0;
+        const rb = b.requests ? (b.failed || 0) / b.requests : 0;
+        return ra - rb;
+      },
       render: (_, r) => {
         if (!r.requests || r.requests === 0) return <span className="text-slate-400">-</span>;
         const rate = ((r.failed || 0) / r.requests * 100).toFixed(1);
         const color = Number(rate) < 5 ? "#10b981" : Number(rate) < 20 ? "#f59e0b" : "#ef4444";
-        return <span style={{ color }}>{rate}%</span>;
+        return <span style={{ color }} className="whitespace-nowrap">{rate}%</span>;
       },
     },
     {
       title: "操作",
       key: "actions",
-      width: 80,
       render: (_, r) =>
         r.proxy_node_id ? (
           <Button size="small" type="text" danger icon={<Unlink className="size-3.5" />} onClick={() => handleUnassign(r.account_id)}>
@@ -714,9 +722,12 @@ export default function ProxyPoolPage() {
                     size="small"
                     checked={autoRefresh.enabled}
                     onChange={async (v) => {
-                      const result = await api.updateProxyAutoRefresh(v, autoRefresh.interval_minutes);
-                      setAutoRefresh(result);
-                      message.success(v ? "自动刷新已开启" : "自动刷新已关闭");
+                      setAutoRefresh((prev) => ({ ...prev, enabled: v }));
+                      try {
+                        await api.updateProxyAutoRefresh(v, autoRefresh.interval_minutes);
+                      } catch {
+                        setAutoRefresh((prev) => ({ ...prev, enabled: !v }));
+                      }
                     }}
                   />
                   {autoRefresh.enabled && (
@@ -738,6 +749,21 @@ export default function ProxyPoolPage() {
                       ]}
                     />
                   )}
+                  <span className="text-xs text-slate-400 ml-2">注册自动分配</span>
+                  <Switch
+                    size="small"
+                    checked={autoRefresh.auto_assign_new_accounts || false}
+                    onChange={async (v) => {
+                      // 乐观更新 — 立即切换 UI
+                      setAutoRefresh((prev) => ({ ...prev, auto_assign_new_accounts: v }));
+                      try {
+                        await api.updateProxyAutoRefresh(autoRefresh.enabled, autoRefresh.interval_minutes, v);
+                      } catch {
+                        // 回滚
+                        setAutoRefresh((prev) => ({ ...prev, auto_assign_new_accounts: !v }));
+                      }
+                    }}
+                  />
                   <Button
                     size="small"
                     icon={<Download className="size-3.5" />}
@@ -796,7 +822,6 @@ export default function ProxyPoolPage() {
                   sort: sort || undefined,
                 });
               }}
-              scroll={{ x: 1060 }}
               locale={{ emptyText: <Empty description="暂无节点，请导入订阅或手动添加" /> }}
             />
 
@@ -928,7 +953,6 @@ export default function ProxyPoolPage() {
               loading={store.loading}
               pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 个账号` }}
               locale={{ emptyText: <Empty description="暂无账号数据" /> }}
-              scroll={{ x: 900 }}
             />
           </motion.div>
         )}

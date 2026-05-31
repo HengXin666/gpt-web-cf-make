@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from ..token_refresh_service import token_refresh_service
+from ..services.token_refresh_service import token_refresh_service
 from .accounts import BatchIdsRequest
 
 router = APIRouter()
@@ -27,7 +27,7 @@ async def batch_refresh_tokens(body: BatchIdsRequest):
 @router.post("/api/tokens/renew-expiring")
 async def renew_expiring_tokens():
     """续期所有即将过期的 Token"""
-    from ..config_service import config_service
+    from ..services.config_service import config_service
     config = config_service.get_token_refresh_config()
     expiring_days = int(config.get("expiring_days") or 5)
     result = token_refresh_service.renew_expiring(expiring_days)

@@ -13,7 +13,7 @@ from typing import Any
 
 from .config_service import DATA_DIR
 from .account_service import account_service
-from .shared.models import RegisterConfig, RegisterStats, LogEntry, _now
+from ..shared.models import RegisterConfig, RegisterStats, LogEntry, _now
 
 REGISTER_STATE_FILE = DATA_DIR / "register_state.json"
 
@@ -179,13 +179,13 @@ class RegisterService:
 
     def _worker(self, index: int) -> dict[str, Any]:
         """注册工作线程 - 执行单次注册"""
-        from .register.registrar import auto_register
+        from ..register.registrar import auto_register
         from .config_service import config_service
-        from .shared.models import _now
+        from ..shared.models import _now
 
         try:
             config = config_service.get()
-            from .proxy_pool import proxy_pool_service
+            from ..proxy_pool import proxy_pool_service
 
             # 注册机模式：从注册机池随机选一个节点，保证不同 IP
             if config_service.get_proxy_mode() == "pool":
@@ -219,6 +219,41 @@ class RegisterService:
                 "last_refreshed_at": _now(),
             }])
             self._append_log(f"#{index} 注册成功: {result.get('email', '?')}", "green")
+
+            # 新注册账号异步刷新配额
+            added_email = result.get("email", "")
+            def _post_register():
+                try:
+                    # 查找新添加的账号 ID
+                    candidates = account_service.export_json()
+                    account_id = ""
+                    for acc in candidates:
+                        if str(acc.get("email") or "").lower() == added_email.lower():
+                            account_id = str(acc.get("id") or "")
+                            break
+                    if account_id:
+                        self._append_log(f"#{index} 开始刷新新账号配额...", "info")
+                        quota_result = account_service.refresh_account_quota(account_id)
+                        if quota_result.get("ok"):
+                            info = quota_result.get("info") or {}
+                            quota = info.get("quota", "?")
+                            self._append_log(f"#{index} 配额刷新成功: 剩余 {quota}", "green")
+                        else:
+                            self._append_log(f"#{index} 配额刷新失败: {quota_result.get('error', '未知')}", "yellow")
+                    # 如果开启了自动分配代理节点
+                    pool_cfg = config_service.get_proxy_pool_config()
+                    if pool_cfg.get("auto_assign_new_accounts") and account_id:
+                        from ..proxy_pool import proxy_pool_service
+                        assign_result = proxy_pool_service.assign_best_node(account_id, pool="api")
+                        if assign_result.get("ok"):
+                            node_name = (assign_result.get("node") or {}).get("name", "?")
+                            self._append_log(f"#{index} 自动分配代理节点: {node_name}", "green")
+                        else:
+                            self._append_log(f"#{index} 自动分配代理节点失败: {assign_result.get('error', '无可用节点')}", "yellow")
+                except Exception as e:
+                    self._append_log(f"#{index} 后续处理异常: {e}", "red")
+            threading.Thread(target=_post_register, daemon=True, name=f"post-register-{index}").start()
+
             return {"ok": True, "email": result.get("email", "")}
         except Exception as exc:
             self._append_log(f"#{index} 注册失败: {exc}", "red")

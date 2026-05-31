@@ -10,9 +10,9 @@ from typing import Any
 
 from .config_service import config_service
 from .account_service import account_service
-from .register.oauth import refresh_token, decode_jwt_payload
-from .shared.http_client import is_local_retryable_error, local_retryable_message
-from .shared.models import _now
+from ..register.oauth import refresh_token, decode_jwt_payload
+from ..shared.http_client import is_local_retryable_error, local_retryable_message
+from ..shared.models import _now
 
 
 def _anonymize(text: str) -> str:
@@ -39,7 +39,7 @@ class TokenRefreshService:
             return {"ok": False, "error": "no refresh_token"}
 
         config = config_service.get()
-        from .proxy_pool import proxy_pool_service
+        from ..proxy_pool import proxy_pool_service
         proxy, node_info = proxy_pool_service.resolve_proxy_with_info(proxy_node_id=str(account.get("proxy_node_id") or ""))
         if node_info:
             print(f"[token-refresh] {account.get('email', account_id)} → 代理节点: {node_info}")

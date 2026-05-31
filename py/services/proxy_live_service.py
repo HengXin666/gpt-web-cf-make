@@ -8,7 +8,7 @@ from copy import deepcopy
 from threading import RLock
 from typing import Any
 
-from .shared.models import _now
+from ..shared.models import _now
 
 
 class ProxyLiveService:
@@ -32,6 +32,8 @@ class ProxyLiveService:
         model: str,
         request_bytes: int,
         stream: bool = False,
+        request_text: str = "",
+        request_image_hashes: list[str] | None = None,
     ) -> None:
         item = {
             "request_id": request_id,
@@ -54,6 +56,8 @@ class ProxyLiveService:
             "error": "",
             "attempts": [],
             "attempt_count": 0,
+            "request_text": request_text[:3000] if request_text else "",
+            "request_image_hashes": request_image_hashes or [],
         }
         with self._lock:
             self._active[request_id] = item

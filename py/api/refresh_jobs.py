@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..refresh_job_service import refresh_job_service
+from ..services.refresh_job_service import refresh_job_service
 
 router = APIRouter()
 

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from ..account_service import account_service
+from ..services.account_service import account_service
 
 router = APIRouter()
 

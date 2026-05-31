@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..config_service import config_service
+from ..services.config_service import config_service
 
 
 class AdapterConfig:

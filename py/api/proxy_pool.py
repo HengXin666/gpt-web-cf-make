@@ -47,6 +47,7 @@ class AssignRequest(BaseModel):
 class AutoRefreshRequest(BaseModel):
     enabled: bool = False
     interval_minutes: int = 60
+    auto_assign_new_accounts: bool | None = None
 
 
 # ── 节点 CRUD ────────────────────────────────────────────────────
@@ -188,17 +189,33 @@ async def get_pool_stats():
 
 @router.get("/auto-refresh")
 async def get_auto_refresh():
-    return proxy_pool_service.get_auto_refresh_status()
+    from ..services.config_service import config_service
+    result = proxy_pool_service.get_auto_refresh_status()
+    pool_cfg = config_service.get_proxy_pool_config()
+    result["auto_assign_new_accounts"] = bool(pool_cfg.get("auto_assign_new_accounts"))
+    return result
 
 
 @router.post("/auto-refresh")
 async def update_auto_refresh(body: AutoRefreshRequest):
-    from ..config_service import config_service
-    config_service.update({
-        "proxy_pool": {
-            "auto_refresh_enabled": body.enabled,
-            "auto_refresh_interval_minutes": max(5, body.interval_minutes),
-        }
-    })
+    from ..services.config_service import config_service
+    updates = {
+        "auto_refresh_enabled": body.enabled,
+        "auto_refresh_interval_minutes": max(5, body.interval_minutes),
+    }
+    if body.auto_assign_new_accounts is not None:
+        updates["auto_assign_new_accounts"] = body.auto_assign_new_accounts
+    config_service.update({"proxy_pool": updates})
     proxy_pool_service.restart_auto_refresh()
-    return proxy_pool_service.get_auto_refresh_status()
+    result = proxy_pool_service.get_auto_refresh_status()
+    pool_cfg = config_service.get_proxy_pool_config()
+    result["auto_assign_new_accounts"] = bool(pool_cfg.get("auto_assign_new_accounts"))
+    return result
+
+
+# ── 节点用量统计 ────────────────────────────────────────────────
+
+@router.get("/node-usage")
+async def get_node_usage_stats():
+    from ..services.proxy_usage_service import proxy_usage_service
+    return proxy_usage_service.node_usage_stats()

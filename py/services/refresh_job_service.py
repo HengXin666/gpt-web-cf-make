@@ -10,7 +10,7 @@ import uuid
 from typing import Any
 
 from .account_service import account_service
-from .shared.http_client import is_local_retryable_error
+from ..shared.http_client import is_local_retryable_error
 from .token_refresh_service import token_refresh_service
 
 

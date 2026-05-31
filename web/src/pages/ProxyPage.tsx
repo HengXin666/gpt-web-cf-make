@@ -4,6 +4,7 @@ import type { ColumnsType } from "antd/es/table";
 import { BarChart3, Copy, KeyRound, Plus, RefreshCcw, Terminal, Trash2 } from "lucide-react";
 import ReactECharts from "echarts-for-react";
 import { api } from "../api";
+import { useAccountStore } from "../stores/accountStore";
 import type { ProxyKey, ProxyLiveLog, ProxyStatus, ProxyUsageAccount, ProxyUsageAttempt, ProxyUsageEvent, ProxyUsagePoint, ProxyUsageRecord, ProxyUsageSeries, ProxyUsageSummary } from "../types";
 
 function formatDate(value?: string) {
@@ -124,6 +125,10 @@ export default function ProxyPage() {
         } else if (data.type === "completed") {
           api.getProxyUsage().then(setUsage).catch(() => undefined);
           api.getProxyUsageSeries().then(setSeries).catch(() => undefined);
+          // 图片请求成功后刷新账号配额统计
+          if (data.record?.path?.includes("/images/") && data.record.success) {
+            useAccountStore.getState().loadStats();
+          }
         }
       } catch {
         // ignore malformed event frames
@@ -528,46 +533,171 @@ function UsageDetail({ item }: { item: ProxyUsageRecord }) {
   const attempts = item.attempts || [];
   const streamLogs = item.stream_logs || [];
   const cost = item.cost;
+  const isImageRequest = item.path?.includes("/images/");
+  const requestImageHashes = item.request_image_hashes || [];
+  const responseImageHashes = item.response_image_hashes || [];
+  const requestText = item.request_text || "";
+  const responseText = item.response_text || "";
+  const [activeTab, setActiveTab] = useState("tokens");
+  const [rawSseExpanded, setRawSseExpanded] = useState(false);
+
+  const hasInput = !!(requestText || requestImageHashes.length > 0);
+  const hasOutput = !!(responseText || responseImageHashes.length > 0);
+  const hasStream = !!(streamLogs.length > 0 || item.stream);
+
+  // 构建 Tab 列表 — 顺序: 输入/输出 | 用量 | 链路 | SSE | 错误
+  const tabs: Array<{ key: string; label: string }> = [];
+  if (hasInput) tabs.push({ key: "input", label: "输入" });
+  if (hasOutput) tabs.push({ key: "output", label: "输出" });
+  tabs.push({ key: "tokens", label: "用量" });
+  if (attempts.length > 0) tabs.push({ key: "attempts", label: `链路 (${attempts.length})` });
+  if (hasStream) tabs.push({ key: "sse", label: `SSE (${streamLogs.length || item.stream_chunks || 0})` });
+  if (item.error) tabs.push({ key: "error", label: "错误" });
+
+  // 首次渲染时自动选择最佳 tab
+  useEffect(() => {
+    if (hasInput) setActiveTab("input");
+    else if (hasOutput) setActiveTab("output");
+    else setActiveTab("tokens");
+  }, []);
+
   return (
-    <div className="usage-detail">
-      {cost && (
-        <div>
-          <strong>Token 与成本</strong>
-          <div className="usage-stream-meta">
-            <Tag>{cost.pricing_model}</Tag>
-            <span>输入 {cost.input_tokens}</span>
-            <span>缓存 {cost.cached_input_tokens}</span>
-            <span>输出 {cost.output_tokens}</span>
-            <span>图像输入 {cost.image_input_tokens}</span>
-            <span>图像输出 {cost.image_output_tokens}</span>
-            <span>{formatUsd(cost.total_cost_usd)}</span>
-            {cost.estimated && <Tag color="gold">估算</Tag>}
+    <div className="usage-detail" style={{ maxHeight: "70vh", overflow: "auto" }}>
+      {/* Tab 导航 */}
+      <div className="flex items-center gap-1 mb-3 border-b pb-2 flex-wrap">
+        {tabs.map((tab) => (
+          <Button
+            key={tab.key}
+            size="small"
+            type={activeTab === tab.key ? "primary" : "text"}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </Button>
+        ))}
+      </div>
+
+      {/* 用量 Tab */}
+      {activeTab === "tokens" && (
+        <div className="space-y-3">
+          {cost && (
+            <div>
+              <strong className="text-xs uppercase text-slate-400">Token 与成本</strong>
+              <div className="usage-stream-meta mt-1">
+                <Tag>{cost.pricing_model}</Tag>
+                <span>输入 {cost.input_tokens?.toLocaleString()}</span>
+                <span>缓存 {cost.cached_input_tokens?.toLocaleString()}</span>
+                <span>输出 {cost.output_tokens?.toLocaleString()}</span>
+                {cost.image_input_tokens > 0 && <span>图像入 {cost.image_input_tokens.toLocaleString()}</span>}
+                {cost.image_output_tokens > 0 && <span>图像出 {cost.image_output_tokens.toLocaleString()}</span>}
+                <span className="font-semibold">{formatUsd(cost.total_cost_usd)}</span>
+                {cost.estimated && <Tag color="gold">估算</Tag>}
+              </div>
+            </div>
+          )}
+          <div>
+            <strong className="text-xs uppercase text-slate-400">请求信息</strong>
+            <div className="usage-stream-meta mt-1">
+              <span>路径 {item.path}</span>
+              <span>模型 {item.model || "-"}</span>
+              <span>状态 {item.status_code}</span>
+              <span>延迟 {item.latency_ms}ms</span>
+              <span>请求 {item.request_bytes || 0}B</span>
+              <span>响应 {item.response_bytes || 0}B</span>
+            </div>
           </div>
-        </div>
-      )}
-      {item.stream && (
-        <div>
-          <strong>流式响应</strong>
-          <div className="usage-stream-meta">
-            <Tag color="blue">SSE</Tag>
-            <span>{item.stream_chunks || streamLogs.length || 0} 块</span>
-            <span>{item.response_bytes || 0} bytes</span>
-          </div>
-          {streamLogs.length > 0 && (
-            <pre>{streamLogs.map((log) => `[${new Date(log.time).toLocaleTimeString("zh-CN", { hour12: false })}] ${log.message}`).join("\n")}</pre>
+          {item.account?.email && (
+            <div>
+              <strong className="text-xs uppercase text-slate-400">使用账号</strong>
+              <div className="mt-1"><span className="code-text">{item.account.email}</span></div>
+            </div>
           )}
         </div>
       )}
-      {item.error && (
-        <div>
-          <strong>最终错误</strong>
-          <pre>{item.error}</pre>
+
+      {/* 输入 Tab */}
+      {activeTab === "input" && (
+        <div className="space-y-3">
+          {requestText && (
+            <div>
+              <strong className="text-xs uppercase text-slate-400">提示词</strong>
+              <pre className="mt-1 p-3 rounded bg-slate-50 dark:bg-slate-900 text-sm leading-relaxed whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{requestText}</pre>
+            </div>
+          )}
+          {requestImageHashes.length > 0 && (
+            <div>
+              <strong className="text-xs uppercase text-slate-400">输入图片 ({requestImageHashes.length})</strong>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {requestImageHashes.map((hash) => (
+                  <ImageThumb key={hash} hash={hash} label="输入" />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
-      {attempts.length > 0 && (
+
+      {/* 输出 Tab */}
+      {activeTab === "output" && (
+        <div className="space-y-3">
+          {responseText && (
+            <div>
+              <strong className="text-xs uppercase text-slate-400">{isImageRequest ? "生成结果" : "响应文本"}</strong>
+              <pre className="mt-1 p-3 rounded bg-slate-50 dark:bg-slate-900 text-sm leading-relaxed whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{responseText}</pre>
+            </div>
+          )}
+          {responseImageHashes.length > 0 && (
+            <div>
+              <strong className="text-xs uppercase text-slate-400">生成图片 ({responseImageHashes.length})</strong>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {responseImageHashes.map((hash) => (
+                  <ImageThumb key={hash} hash={hash} label="输出" />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SSE 日志 Tab */}
+      {activeTab === "sse" && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 mb-2">
+            <strong className="text-xs uppercase text-slate-400">流式日志</strong>
+            <Tag color="blue">SSE</Tag>
+            <span className="text-xs text-slate-400">{streamLogs.length || item.stream_chunks || 0} 块</span>
+            <div className="flex-1" />
+            <Button size="small" type="text" onClick={() => setRawSseExpanded((v) => !v)}>
+              {rawSseExpanded ? "收起原始 SSE" : "展开原始 SSE"}
+            </Button>
+          </div>
+          {/* SSE 解析渲染 — 合并连续 content 块 */}
+          <div>
+            <strong className="text-xs uppercase text-slate-400">解析内容</strong>
+            <div className="mt-1 p-3 rounded bg-slate-50 dark:bg-slate-900 text-sm leading-relaxed whitespace-pre-wrap break-all max-h-80 overflow-y-auto">
+              <StreamContentRenderer logs={streamLogs} />
+            </div>
+          </div>
+          {/* 原始 SSE 格式 */}
+          {rawSseExpanded && (
+            <div>
+              <strong className="text-xs uppercase text-slate-400">原始 SSE 帧</strong>
+              <pre className="mt-1 p-3 rounded bg-slate-800 text-green-400 text-xs leading-relaxed whitespace-pre-wrap break-all max-h-80 overflow-y-auto font-mono">
+                {streamLogs.map((log, i) => {
+                  const time = new Date(log.time).toLocaleTimeString("zh-CN", { hour12: false });
+                  return `[${time}] #${i} ${log.message}`;
+                }).join("\n")}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 尝试链路 Tab */}
+      {activeTab === "attempts" && (
         <div>
-          <strong>上游尝试链路</strong>
-          <div className="usage-attempts">
+          <strong className="text-xs uppercase text-slate-400">上游尝试链路</strong>
+          <div className="usage-attempts mt-1">
             {attempts.map((attempt: ProxyUsageAttempt, index) => (
               <div className="usage-attempt" key={`${index}-${attempt.account?.id || attempt.account?.email || attempt.status_code}`}>
                 <div className="usage-attempt-head">
@@ -576,12 +706,135 @@ function UsageDetail({ item }: { item: ProxyUsageRecord }) {
                   <span>{attempt.latency_ms} ms</span>
                   <span className="code-text">{attempt.account?.email || "-"}</span>
                 </div>
-                {attempt.error && attempt.error !== "selected" && <pre>{attempt.error}</pre>}
+                {attempt.error && attempt.error !== "selected" && <pre className="max-h-24 overflow-y-auto">{attempt.error}</pre>}
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* 错误 Tab */}
+      {activeTab === "error" && (
+        <div>
+          <strong className="text-xs uppercase text-slate-400">最终错误</strong>
+          <pre className="mt-1 p-3 rounded bg-red-50 dark:bg-red-950 text-sm leading-relaxed whitespace-pre-wrap break-all max-h-80 overflow-y-auto">{item.error}</pre>
+        </div>
+      )}
     </div>
   );
+}
+
+/** 图片缩略图 — 点击打开全屏灯箱，支持缩放拖拽 */
+function ImageThumb({ hash, label }: { hash: string; label: string }) {
+  const [lightbox, setLightbox] = useState(false);
+  const [error, setError] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  if (error) return null;
+
+  const src = `/api/proxy/image/${hash}`;
+
+  const open = () => { setLightbox(true); setZoom(1); setPos({ x: 0, y: 0 }); };
+  const close = () => setLightbox(false);
+
+  const onWheel = (e: React.WheelEvent) => {
+    e.stopPropagation();
+    setZoom((z) => Math.max(0.25, Math.min(8, z - e.deltaY * 0.002)));
+  };
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (zoom <= 1) return;
+    setDragging(true);
+    setDragStart({ x: e.clientX - pos.x, y: e.clientY - pos.y });
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!dragging) return;
+    setPos({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  };
+  const onMouseUp = () => setDragging(false);
+
+  // Esc 关闭
+  useEffect(() => {
+    if (!lightbox) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [lightbox]);
+
+  return (
+    <>
+      <img
+        src={src}
+        alt={`${label}图片`}
+        className="object-cover rounded border cursor-pointer hover:ring-2 ring-blue-400 transition-all shrink-0"
+        style={{ width: 96, height: 96 }}
+        loading="lazy"
+        onClick={open}
+        onError={() => setError(true)}
+      />
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
+          onClick={close}
+        >
+          {/* 工具栏 */}
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+            <Button size="small" ghost onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.min(8, z + 0.5)); }}>＋</Button>
+            <Button size="small" ghost onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.max(0.25, z - 0.5)); }}>－</Button>
+            <Button size="small" ghost onClick={(e) => { e.stopPropagation(); setZoom(1); setPos({ x: 0, y: 0 }); }}>1:1</Button>
+            <Button size="small" ghost onClick={close}>✕ 关闭</Button>
+          </div>
+          <img
+            src={src}
+            alt={`${label}图片`}
+            className="select-none"
+            style={{
+              transform: `translate(${pos.x}px, ${pos.y}px) scale(${zoom})`,
+              cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "default",
+              maxWidth: "90vw",
+              maxHeight: "90vh",
+              transition: dragging ? "none" : "transform 0.15s ease",
+            }}
+            draggable={false}
+            onClick={(e) => e.stopPropagation()}
+            onWheel={onWheel}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={onMouseUp}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** 将 SSE 日志序列渲染为连贯文本 — 模拟解析后的内容 */
+function StreamContentRenderer({ logs }: { logs: Array<{ time: string; message: string }> }) {
+  if (logs.length === 0) return <span className="text-slate-400">暂无流式日志</span>;
+
+  // 尝试解析 SSE data: 提取 content delta
+  const parts: string[] = [];
+  for (const log of logs) {
+    const msg = log.message;
+    // 匹配常见 SSE data 格式
+    const dataMatch = msg.match(/data:\s*(\{.*\})/);
+    if (dataMatch) {
+      try {
+        const json = JSON.parse(dataMatch[1]);
+        const delta = json.choices?.[0]?.delta?.content || json.content || "";
+        if (delta) parts.push(delta);
+      } catch {
+        // 非 JSON data，可能是 [DONE] 或纯文本
+        if (msg.includes("[DONE]")) parts.push("\n--- DONE ---");
+        else parts.push(msg);
+      }
+    } else {
+      parts.push(msg);
+    }
+  }
+  return <>{parts.join("") || <span className="text-slate-400">无法解析流内容</span>}</>;
 }

@@ -8,7 +8,7 @@ from typing import Any
 
 import urllib3
 from curl_cffi import requests
-from .shared.http_client import get_curl_http_version, install_local_retry
+from ..shared.http_client import get_curl_http_version, install_local_retry
 
 urllib3.disable_warnings()
 

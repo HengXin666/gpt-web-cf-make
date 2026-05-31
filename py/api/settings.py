@@ -8,7 +8,7 @@ from typing import Any
 import requests
 from fastapi import APIRouter, HTTPException
 
-from ..config_service import config_service
+from ..services.config_service import config_service
 from ..shared.http_client import create_session, request_local_retry
 
 router = APIRouter()
@@ -32,7 +32,7 @@ async def update_settings(body: dict[str, Any]):
     """更新配置"""
     result = config_service.update(body)
     if not bool((result.get("reverse_proxy") or {}).get("remember_keys")):
-        from ..proxy_auth_service import proxy_auth_service
+        from ..services.proxy_auth_service import proxy_auth_service
         proxy_auth_service.forget_plain_keys()
     return result
 

@@ -14,7 +14,7 @@ from typing import Any
 
 from .config_service import DATA_DIR
 from .config_service import config_service
-from .shared.models import _now
+from ..shared.models import _now
 
 KEYS_FILE = DATA_DIR / "proxy_keys.json"
 

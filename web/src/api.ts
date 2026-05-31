@@ -319,10 +319,17 @@ export const api = {
   },
 
   getProxyAutoRefresh() {
-    return request<{ enabled: boolean; interval_minutes: number; running: boolean }>("GET", "/api/proxy-pool/auto-refresh");
+    return request<{ enabled: boolean; interval_minutes: number; running: boolean; auto_assign_new_accounts?: boolean }>("GET", "/api/proxy-pool/auto-refresh");
   },
 
-  updateProxyAutoRefresh(enabled: boolean, intervalMinutes = 60) {
-    return request<{ enabled: boolean; interval_minutes: number; running: boolean }>("POST", "/api/proxy-pool/auto-refresh", { enabled, interval_minutes: intervalMinutes });
+  updateProxyAutoRefresh(enabled: boolean, intervalMinutes = 60, autoAssignNewAccounts?: boolean) {
+    return request<{ enabled: boolean; interval_minutes: number; running: boolean; auto_assign_new_accounts?: boolean }>(
+      "POST", "/api/proxy-pool/auto-refresh",
+      { enabled, interval_minutes: intervalMinutes, auto_assign_new_accounts: autoAssignNewAccounts }
+    );
+  },
+
+  getNodeUsageStats() {
+    return request<import("./types").NodeUsageStat[]>("GET", "/api/proxy-pool/node-usage");
   },
 };

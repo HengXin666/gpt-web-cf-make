@@ -6,8 +6,8 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..config_service import config_service
-from ..proxy_check_service import check_proxy_purity_stream
+from ..services.config_service import config_service
+from ..services.proxy_check_service import check_proxy_purity_stream
 
 router = APIRouter()
 

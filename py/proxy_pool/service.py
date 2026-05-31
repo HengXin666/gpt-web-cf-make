@@ -11,7 +11,7 @@ from threading import RLock, Thread
 from typing import Any, Generator
 from urllib.parse import urlparse
 
-from ..config_service import config_service, DATA_DIR
+from ..services.config_service import config_service, DATA_DIR
 from .models import ProxyNode
 from .parser import parse_subscription, proxy_node_to_url
 
@@ -317,11 +317,14 @@ class ProxyPoolService:
                 if dedup_key in existing_keys:
                     for existing in self._nodes.values():
                         if (existing.server, existing.port, existing.protocol) == dedup_key:
-                            existing.name = node.name
-                            existing.extra = node.extra
+                            # 只更新订阅相关，保留用户自定义字段
+                            existing.name = node.name or existing.name
+                            existing.extra = node.extra or existing.extra
                             existing.proxy_url = node.proxy_url or existing.proxy_url
                             existing.subscription_id = sub_id
-                            existing.pool = pool
+                            # existing.pool 不变 (用户可能已手动改)
+                            # existing.enabled 不变
+                            # existing.score, grade, latency_ms 不变 (旧测试结果保留)
                             existing.updated_at = _now()
                             updated_count += 1
                             break
@@ -345,15 +348,59 @@ class ProxyPoolService:
         url = str(sub.get("url") or "")
         name = str(sub.get("name") or "")
         sub_type = str(sub.get("type") or "auto")
-        pool = str(sub.get("pool") or "api")
+
+        # 拉取新数据
+        from ..shared.http_client import create_session
+        try:
+            proxy = config_service.get_proxy()
+            session = create_session(proxy)
+            resp = session.get(url, timeout=30)
+            resp.raise_for_status()
+            raw = resp.text
+        except Exception as e:
+            return {"ok": False, "error": f"拉取订阅失败: {e}"}
+
+        nodes = parse_subscription(raw, sub_type)
+        if not nodes:
+            return {"ok": False, "error": "未解析到任何节点"}
 
         with self._lock:
-            old_node_ids = [nid for nid, n in self._nodes.items() if n.subscription_id == sub_id]
-            for nid in old_node_ids:
-                del self._nodes[nid]
+            new_keys: set[tuple] = set()
+            for nd in nodes:
+                if not nd.server or not nd.port:
+                    continue
+                key = (nd.server, nd.port, nd.protocol)
+                new_keys.add(key)
+                existing = next((n for n in self._nodes.values() if (n.server, n.port, n.protocol) == key), None)
+                if existing:
+                    existing.name = nd.name or existing.name
+                    existing.extra = nd.extra or existing.extra
+                    existing.proxy_url = nd.proxy_url or existing.proxy_url
+                    existing.subscription_id = sub_id
+                    existing.updated_at = _now()
+                else:
+                    nd.subscription_id = sub_id
+                    nd.updated_at = _now()
+                    self._nodes[nd.id] = nd
+
+            # 删除不再存在的节点
+            from ..services.account_service import account_service
+            accounts = account_service.list_accounts(page=1, page_size=99999)["items"]
+            assigned_ids = {a.get("proxy_node_id") for a in accounts}
+            for nid, n in list(self._nodes.items()):
+                if n.subscription_id != sub_id:
+                    continue
+                key = (n.server, n.port, n.protocol)
+                if key not in new_keys:
+                    if nid in assigned_ids or n.last_tested_at or n.score >= 0:
+                        n.enabled = False
+                        n.last_error = "订阅中已移除"
+                    else:
+                        del self._nodes[nid]
+
             self._save()
 
-        return self.import_subscription(url, name, sub_type, pool)
+        return {"ok": True, "subscription_id": sub_id, "total_parsed": len(nodes)}
 
     def sync_all_subscriptions(self) -> dict[str, Any]:
         with self._lock:
@@ -433,7 +480,7 @@ class ProxyPoolService:
             yield json.dumps({"step": "error", "error": f"协议 {node.protocol} 需要配置全局代理"}, ensure_ascii=False) + "\n"
             return
 
-        from ..proxy_check_service import check_proxy_purity_stream
+        from ..services.proxy_check_service import check_proxy_purity_stream
         final_result: dict[str, Any] = {}
 
         for event_str in check_proxy_purity_stream(proxy_url):
@@ -674,7 +721,7 @@ class ProxyPoolService:
     # ── 分配管理 ────────────────────────────────────────────────
 
     def assign_to_account(self, account_id: str, node_id: str) -> dict[str, Any]:
-        from ..account_service import account_service
+        from ..services.account_service import account_service
         if node_id:
             with self._lock:
                 if node_id not in self._nodes:
@@ -684,8 +731,43 @@ class ProxyPoolService:
             return {"ok": False, "error": "账号不存在"}
         return {"ok": True, "account_id": account_id, "proxy_node_id": node_id}
 
+    def assign_best_node(self, account_id: str, pool: str = "api") -> dict[str, Any]:
+        """为新账号分配最优节点（按延迟+评分排序）"""
+        import random
+        from ..services.account_service import account_service
+        with self._lock:
+            candidates = [
+                n for n in self._nodes.values()
+                if n.enabled and n.pool == pool
+            ]
+        if not candidates:
+            return {"ok": False, "error": f"池 {pool} 中没有可用节点"}
+        # 按评分降序、延迟升序排序，取最优
+        candidates.sort(key=lambda n: (
+            -(n.score if n.score >= 0 else -1),
+            n.latency_ms if n.latency_ms >= 0 else 99999,
+        ))
+        # 从 top 3 中随机选一个，避免所有新账号挤到同一个节点
+        top = candidates[:min(3, len(candidates))]
+        best = random.choice(top)
+        result = account_service.update_account(account_id, {"proxy_node_id": best.id})
+        if result is None:
+            return {"ok": False, "error": "账号不存在"}
+        return {
+            "ok": True,
+            "account_id": account_id,
+            "proxy_node_id": best.id,
+            "node": {
+                "name": best.name or best.server,
+                "server": best.server,
+                "port": best.port,
+                "latency_ms": best.latency_ms,
+                "score": best.score,
+            },
+        }
+
     def unassign_from_account(self, account_id: str) -> dict[str, Any]:
-        from ..account_service import account_service
+        from ..services.account_service import account_service
         result = account_service.update_account(account_id, {"proxy_node_id": ""})
         if result is None:
             return {"ok": False, "error": "账号不存在"}
@@ -696,7 +778,7 @@ class ProxyPoolService:
         按质量+延迟筛选，尽可能均匀分配。
         """
         import random
-        from ..account_service import account_service
+        from ..services.account_service import account_service
 
         # 取所有账号
         accounts = account_service.list_accounts(page=1, page_size=99999)["items"]
@@ -735,12 +817,12 @@ class ProxyPoolService:
         }
 
     def get_assignments(self) -> list[dict[str, Any]]:
-        from ..account_service import account_service
+        from ..services.account_service import account_service
         accounts = account_service.list_accounts(page=1, page_size=99999)["items"]
 
         # 加载用量数据
         try:
-            from ..proxy_usage_service import proxy_usage_service
+            from ..services.proxy_usage_service import proxy_usage_service
             usage_index = proxy_usage_service.account_usage_index()
         except Exception:
             usage_index = {}
@@ -793,7 +875,7 @@ class ProxyPoolService:
             if n.country:
                 by_country[n.country] = by_country.get(n.country, 0) + 1
 
-        from ..account_service import account_service
+        from ..services.account_service import account_service
         accounts = account_service.list_accounts(page=1, page_size=99999)["items"]
         assigned = sum(1 for a in accounts if a.get("proxy_node_id"))
 

@@ -11,7 +11,7 @@ from ..pool import account_service
 from ..adapter_config import config
 from ..openai_backend_api import ImagePollTimeoutError, OpenAIBackendAPI
 from ..helper import IMAGE_MODELS, extract_image_from_message_content
-from ...config_service import config_service
+from ...services.config_service import config_service
 from ...shared.http_client import LOCAL_RETRY_ATTEMPTS, is_local_retryable_error, is_timeout_error
 import logging
 logger = logging.getLogger(__name__)

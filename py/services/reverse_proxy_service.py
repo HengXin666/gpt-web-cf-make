@@ -15,11 +15,11 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from .account_service import account_service
 from .config_service import config_service
-from .cgpt.image_proxy import chatgpt_image_proxy
-from .cgpt.text_proxy import chatgpt_text_proxy
+from ..cgpt.image_proxy import chatgpt_image_proxy
+from ..cgpt.text_proxy import chatgpt_text_proxy
 from .proxy_live_service import proxy_live_service
 from .proxy_usage_service import proxy_usage_service
-from .shared.http_client import request_local_retry
+from ..shared.http_client import request_local_retry
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -247,11 +247,14 @@ class ReverseProxyService:
         stream: bool = False,
         usage: dict[str, int] | None = None,
         error: str = "",
+        request_content: dict[str, Any] | None = None,
+        response_content: dict[str, Any] | None = None,
     ) -> None:
-        proxy_usage_service.record({
+        entry = {
             "request_id": request_id,
             "api_key": {"id": api_key.get("id"), "name": api_key.get("name")},
             "account": next((attempt.get("account") for attempt in attempts if attempt.get("success")), (attempts[-1].get("account") if attempts else {"id": None, "email": None})),
+            "proxy_node_id": next((attempt.get("account", {}).get("proxy_node_id") for attempt in attempts if attempt.get("success")), (attempts[-1].get("account", {}).get("proxy_node_id") if attempts else "")),
             "path": f"/v1/{path.strip('/')}" if path else "/v1",
             "method": method,
             "model": model,
@@ -265,7 +268,12 @@ class ReverseProxyService:
             "error": error[:2000],
             "attempts": attempts,
             "attempt_count": len(attempts),
-        })
+        }
+        if request_content:
+            entry["_request_content"] = request_content
+        if response_content:
+            entry["_response_content"] = response_content
+        proxy_usage_service.record(entry)
 
     def _send_upstream(
         self,
@@ -276,7 +284,7 @@ class ReverseProxyService:
         stream: bool,
     ) -> requests.Response:
         timeout = int(self._config().get("timeout_seconds") or 120)
-        from .proxy_pool import proxy_pool_service
+        from ..proxy_pool import proxy_pool_service
         proxy, node_info = proxy_pool_service.resolve_proxy_with_info(proxy_node_id=str(account.get("proxy_node_id") or ""))
         if node_info:
             import logging

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Card, Empty, Input, Modal, Select, Space, Table, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
+  Clock,
   Copy,
   Database,
   Download,
@@ -73,8 +74,47 @@ export default function AccountsPage() {
   const [failedAction, setFailedAction] = useState<"quota" | "token">("quota");
   const [logsOpen, setLogsOpen] = useState(true);
   const [tableScrollY, setTableScrollY] = useState(420);
+  const [lastStatsRefresh, setLastStatsRefresh] = useState<number>(Date.now());
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [timeAgo, setTimeAgo] = useState("刚刚");
+
+  const updateTimeAgo = useCallback(() => {
+    const diff = Math.max(0, Math.floor((Date.now() - lastStatsRefresh) / 1000));
+    if (diff < 5) setTimeAgo("刚刚");
+    else if (diff < 60) setTimeAgo(`${diff} 秒前`);
+    else if (diff < 3600) setTimeAgo(`${Math.floor(diff / 60)} 分钟前`);
+    else setTimeAgo(`${Math.floor(diff / 3600)} 小时前`);
+  }, [lastStatsRefresh]);
+
+  // 自动刷新配额统计
+  useEffect(() => {
+    if (!autoRefreshEnabled) return;
+    const timer = window.setInterval(() => {
+      store.loadStats();
+      setLastStatsRefresh(Date.now());
+    }, 30000); // 每30秒刷新
+    return () => window.clearInterval(timer);
+  }, [autoRefreshEnabled, store]);
+
+  // 更新时间描述
+  useEffect(() => {
+    updateTimeAgo();
+    const timer = window.setInterval(updateTimeAgo, 10000);
+    return () => window.clearInterval(timer);
+  }, [updateTimeAgo]);
+
+  // 刷新时更新时间
+  const refreshWithTimestamp = async () => {
+    await refresh();
+    setLastStatsRefresh(Date.now());
+  };
 
   const { accounts, total, page, pageSize, loading, stats } = store;
+
+  // 当 stats 被外部刷新时同步时间戳
+  useEffect(() => {
+    if (stats) setLastStatsRefresh(Date.now());
+  }, [stats]);
 
   useEffect(() => {
     if (!didLoad.current) {
@@ -369,6 +409,13 @@ export default function AccountsPage() {
             </motion.div>
           );
         })}
+      </div>
+      <div className="flex items-center gap-3 mb-4 text-xs text-slate-400">
+        <span className="flex items-center gap-1"><Clock className="size-3.5" />配额刷新于 {timeAgo}</span>
+        <Button size="small" type="text" icon={<RefreshCcw className="size-3" />} onClick={refreshWithTimestamp} loading={loading}>手动刷新</Button>
+        <Button size="small" type="text" onClick={() => setAutoRefreshEnabled((v) => !v)}>
+          {autoRefreshEnabled ? "暂停自动刷新" : "开启自动刷新"}
+        </Button>
       </div>
 
       <Card className="surface token-table-card" styles={{ body: { padding: 0 } }}>

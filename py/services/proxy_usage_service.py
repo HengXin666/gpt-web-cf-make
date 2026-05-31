@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections import defaultdict
@@ -13,7 +14,7 @@ from typing import Any
 from .config_service import DATA_DIR
 from .proxy_live_service import proxy_live_service
 from .proxy_pricing_service import compute_usage_cost
-from .shared.models import _now
+from ..shared.models import _now
 
 USAGE_FILE = DATA_DIR / "proxy_usage.jsonl"
 USAGE_DB = DATA_DIR / "proxy_usage.sqlite3"
@@ -59,7 +60,18 @@ class ProxyUsageService:
             conn.execute("ALTER TABLE proxy_usage ADD COLUMN account_email TEXT")
         if "payload_json" not in columns:
             conn.execute("ALTER TABLE proxy_usage ADD COLUMN payload_json TEXT")
+        if "proxy_node_id" not in columns:
+            conn.execute("ALTER TABLE proxy_usage ADD COLUMN proxy_node_id TEXT")
+        if "request_text" not in columns:
+            conn.execute("ALTER TABLE proxy_usage ADD COLUMN request_text TEXT")
+        if "response_text" not in columns:
+            conn.execute("ALTER TABLE proxy_usage ADD COLUMN response_text TEXT")
+        if "request_image_hashes" not in columns:
+            conn.execute("ALTER TABLE proxy_usage ADD COLUMN request_image_hashes TEXT")
+        if "response_image_hashes" not in columns:
+            conn.execute("ALTER TABLE proxy_usage ADD COLUMN response_image_hashes TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_usage_account ON proxy_usage(account_id, account_email)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_proxy_usage_node ON proxy_usage(proxy_node_id, time)")
         self._backfill_account_columns(conn)
         return conn
 
@@ -105,6 +117,13 @@ class ProxyUsageService:
         image_output_tokens = int(cost.get("image_output_tokens") or 0)
         total_tokens = input_tokens + output_tokens + image_input_tokens + image_output_tokens
         account = payload.get("account") if isinstance(payload.get("account"), dict) else {}
+        # 提取请求/响应内容
+        req_content = payload.get("_request_content") if isinstance(payload.get("_request_content"), dict) else {}
+        resp_content = payload.get("_response_content") if isinstance(payload.get("_response_content"), dict) else {}
+        request_text = str(req_content.get("text") or "")[:20000]
+        response_text = str(resp_content.get("text") or "")[:20000]
+        request_image_hashes = json.dumps(req_content.get("image_hashes") or [], separators=(",", ":"))
+        response_image_hashes = json.dumps(resp_content.get("image_hashes") or [], separators=(",", ":"))
         with self._connect() as conn:
             conn.execute(
                 """
@@ -112,8 +131,9 @@ class ProxyUsageService:
                     request_id, time, api_key_name, model, path, success,
                     input_tokens, cached_input_tokens, output_tokens, image_input_tokens,
                     image_output_tokens, total_tokens, cost_usd, estimated,
-                    account_id, account_email, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    account_id, account_email, proxy_node_id, payload_json,
+                    request_text, response_text, request_image_hashes, response_image_hashes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(payload.get("request_id") or ""),
@@ -132,12 +152,28 @@ class ProxyUsageService:
                     1 if cost.get("estimated") else 0,
                     str(account.get("id") or ""),
                     str(account.get("email") or ""),
+                    str(payload.get("proxy_node_id") or ""),
                     json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                    request_text,
+                    response_text,
+                    request_image_hashes,
+                    response_image_hashes,
                 ),
             )
 
     def record(self, entry: dict[str, Any]) -> None:
         payload = {"time": _now(), **entry}
+        # 扁平化 _request_content / _response_content 到顶层，确保 JSONL 和前端都能直接读取
+        for src_key, dst_text, dst_hashes in [
+            ("_request_content", "request_text", "request_image_hashes"),
+            ("_response_content", "response_text", "response_image_hashes"),
+        ]:
+            content = payload.pop(src_key, None)
+            if isinstance(content, dict):
+                if content.get("text"):
+                    payload.setdefault(dst_text, str(content["text"])[:20000])
+                if content.get("image_hashes"):
+                    payload.setdefault(dst_hashes, content["image_hashes"])
         active = next((item for item in proxy_live_service.active() if item.get("request_id") == payload.get("request_id")), {})
         for key in ("stream", "stream_chunks", "stream_logs"):
             if key in active and (key not in payload or not payload.get(key)):
@@ -324,6 +360,36 @@ class ProxyUsageService:
                 result[account_email.lower()] = item
         return result
 
+    def node_usage_stats(self) -> list[dict[str, Any]]:
+        """按 proxy_node_id 统计请求次数（总数 + 今日 + 最后请求时间）。"""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._lock:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        proxy_node_id,
+                        COUNT(*) AS total_requests,
+                        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_requests,
+                        SUM(CASE WHEN DATE(time) = ? THEN 1 ELSE 0 END) AS today_requests,
+                        MAX(time) AS last_request_time
+                    FROM proxy_usage
+                    WHERE proxy_node_id IS NOT NULL AND proxy_node_id != ''
+                    GROUP BY proxy_node_id
+                    """,
+                    (today,),
+                ).fetchall()
+        return [
+            {
+                "proxy_node_id": str(row[0] or ""),
+                "total_requests": int(row[1] or 0),
+                "failed_requests": int(row[2] or 0),
+                "today_requests": int(row[3] or 0),
+                "last_request_time": str(row[4] or ""),
+            }
+            for row in rows
+        ]
+
     def series(self, minutes: int = 240, bucket_seconds: int = 60) -> dict[str, Any]:
         minutes = max(5, min(24 * 60, int(minutes or 240)))
         bucket_seconds = max(30, min(3600, int(bucket_seconds or 60)))
@@ -372,4 +438,67 @@ class ProxyUsageService:
         }
 
 
+class ImageDedupStore:
+    """图片去重存储 — 输入图片用 MD5 去重，输出图片用 日期/request_id 命名。"""
+
+    def __init__(self, store_dir: Path | None = None):
+        self._store_dir = store_dir or (DATA_DIR / "proxy_images")
+        self._store_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = RLock()
+
+    def _md5_path(self, md5_hash: str) -> Path:
+        prefix = md5_hash[:2] if len(md5_hash) >= 2 else "xx"
+        return self._store_dir / "input" / prefix / f"{md5_hash}.png"
+
+    def store_input(self, image_bytes: bytes) -> str:
+        """存储输入图片（MD5 去重），返回 hash。"""
+        md5_hash = hashlib.md5(image_bytes).hexdigest()
+        path = self._md5_path(md5_hash)
+        with self._lock:
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(image_bytes)
+        return md5_hash
+
+    def store_input_many(self, images: list[bytes]) -> list[str]:
+        return [self.store_input(img) for img in images if img]
+
+    def store_output(self, image_bytes: bytes, request_id: str, index: int = 0) -> str:
+        """存储输出图片（日期/request_id 命名），返回相对路径。"""
+        from datetime import datetime
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        rel_path = f"output/{date_str}/{request_id}_{index}.png"
+        path = self._store_dir / rel_path
+        with self._lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(image_bytes)
+        return rel_path
+
+    def store_output_many(self, images: list[bytes], request_id: str) -> list[str]:
+        return [self.store_output(img, request_id, i) for i, img in enumerate(images) if img]
+
+    def get(self, key: str) -> bytes | None:
+        """按 key 获取图片 — 支持 MD5 hash 或 output 相对路径。"""
+        # 尝试 input 路径 (MD5 hash)
+        if len(key) == 32 and all(c in "0123456789abcdef" for c in key):
+            path = self._md5_path(key)
+            if path.exists():
+                return path.read_bytes()
+        # 尝试 output 路径 (相对路径)
+        path = self._store_dir / key
+        if path.exists():
+            return path.read_bytes()
+        # 兼容旧的 SHA256 hash 路径
+        if len(key) >= 2:
+            old_path = self._store_dir / key[:2] / f"{key}.bin"
+            if old_path.exists():
+                return old_path.read_bytes()
+        return None
+
+    @staticmethod
+    def hash_bytes(data: bytes) -> str:
+        return hashlib.md5(data).hexdigest()
+
+
+image_dedup_store = ImageDedupStore()
 proxy_usage_service = ProxyUsageService()

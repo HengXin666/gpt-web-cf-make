@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..register_service import register_service
+from ..services.register_service import register_service
 
 router = APIRouter()
 

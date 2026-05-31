@@ -75,7 +75,7 @@ async def spa_fallback(request: Request, exc):
 def main():
     """启动 uvicorn 服务"""
     import uvicorn
-    from py.config_service import config_service
+    from py.services.config_service import config_service
 
     config = config_service.get()
     host = str(config.get("host") or "0.0.0.0")

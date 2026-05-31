@@ -15,8 +15,8 @@ from .helper import anthropic_sse_stream, sse_json_stream
 from .pool import account_service
 from .protocol import anthropic_v1_messages, openai_v1_chat_complete, openai_v1_response
 from .protocol.conversation import count_text_tokens
-from ..proxy_live_service import proxy_live_service
-from ..proxy_usage_service import proxy_usage_service
+from ..services.proxy_live_service import proxy_live_service
+from ..services.proxy_usage_service import proxy_usage_service
 
 
 def _openai_error(message: str, status_code: int = 502, code: str = "upstream_error", error_type: str = "server_error") -> JSONResponse:
@@ -146,6 +146,19 @@ class ChatGPTTextProxy:
         if not isinstance(body, dict):
             return _openai_error("JSON body must be an object", 400, "invalid_request", "invalid_request_error")
         model = str(body.get("model") or "auto")
+        # 提取用户消息文本用于实时展示
+        req_text = ""
+        if isinstance(body.get("messages"), list):
+            for msg in reversed(body["messages"]):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    txt = msg.get("content")
+                    if isinstance(txt, str):
+                        req_text = txt
+                    elif isinstance(txt, list):
+                        req_text = " ".join(str(p.get("text") or "") for p in txt if isinstance(p, dict) and p.get("type") == "text")
+                    break
+        if not req_text and isinstance(body.get("prompt"), str):
+            req_text = body["prompt"]
         proxy_live_service.start(
             request_id=request_id,
             api_key=api_key,
@@ -154,6 +167,7 @@ class ChatGPTTextProxy:
             model=model,
             request_bytes=len(body_bytes),
             stream=bool(body.get("stream")),
+            request_text=req_text,
         )
         tracking_token = account_service.start_attempt_tracking()
         try:
@@ -167,7 +181,40 @@ class ChatGPTTextProxy:
             attempts = account_service.stop_attempt_tracking(tracking_token)
             content = json.dumps(result, ensure_ascii=False).encode("utf-8")
             latency_ms = int((time.perf_counter() - started) * 1000)
-            self._record(request_id, api_key, path, request.method, model, 200, latency_ms, True, len(body_bytes), len(content), attempts, stream=False, usage=_usage_from_result(result))
+            # 提取请求文本（最后一条用户消息）
+            req_text = ""
+            if isinstance(body.get("messages"), list):
+                for msg in reversed(body["messages"]):
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        txt = msg.get("content")
+                        if isinstance(txt, str):
+                            req_text = txt[:20000]
+                        elif isinstance(txt, list):
+                            # 多模态内容
+                            parts = []
+                            for part in txt:
+                                if isinstance(part, dict) and part.get("type") == "text":
+                                    parts.append(str(part.get("text") or ""))
+                            req_text = " ".join(parts)[:20000]
+                        break
+            # 提取响应文本
+            resp_text = ""
+            if isinstance(result.get("choices"), list) and result["choices"]:
+                choice = result["choices"][0]
+                if isinstance(choice, dict):
+                    msg = choice.get("message") or choice.get("delta") or {}
+                    resp_text = str(msg.get("content") or "")[:20000]
+            # 处理 content 字段（兼容其他格式）
+            if not resp_text and isinstance(result.get("content"), str):
+                resp_text = result["content"][:3000]
+            if not req_text and isinstance(body.get("prompt"), str):
+                req_text = body["prompt"][:3000]
+            self._record(
+                request_id, api_key, path, request.method, model, 200, latency_ms, True, len(body_bytes), len(content),
+                attempts, stream=False, usage=_usage_from_result(result),
+                request_content={"text": req_text},
+                response_content={"text": resp_text},
+            )
             return JSONResponse(content=result)
         except HTTPException as exc:
             attempts = account_service.stop_attempt_tracking(tracking_token)
@@ -281,8 +328,10 @@ class ChatGPTTextProxy:
         stream: bool = False,
         usage: dict[str, int] | None = None,
         error: str = "",
+        request_content: dict[str, Any] | None = None,
+        response_content: dict[str, Any] | None = None,
     ) -> None:
-        proxy_usage_service.record({
+        entry = {
             "request_id": request_id,
             "api_key": {"id": api_key.get("id"), "name": api_key.get("name")},
             "account": next((attempt.get("account") for attempt in attempts if attempt.get("success")), (attempts[-1].get("account") if attempts else {"id": None, "email": None})),
@@ -299,7 +348,12 @@ class ChatGPTTextProxy:
             "error": error[:2000],
             "attempts": attempts,
             "attempt_count": len(attempts),
-        })
+        }
+        if request_content:
+            entry["_request_content"] = request_content
+        if response_content:
+            entry["_response_content"] = response_content
+        proxy_usage_service.record(entry)
 
 
 chatgpt_text_proxy = ChatGPTTextProxy()
