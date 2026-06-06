@@ -370,6 +370,7 @@ class ChatGPTImageProxy:
             headers={
                 "Cache-Control": "no-cache",
                 "X-Accel-Buffering": "no",
+                "Transfer-Encoding": "identity",
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
                 "Access-Control-Allow-Headers": "*",

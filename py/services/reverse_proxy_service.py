@@ -570,6 +570,7 @@ class ReverseProxyService:
         headers = self._response_headers(upstream.headers)
         headers.setdefault("Cache-Control", "no-cache")
         headers.setdefault("X-Accel-Buffering", "no")
+        headers["Transfer-Encoding"] = "identity"
         return StreamingResponse(
             iterator(),
             status_code=int(upstream.status_code),

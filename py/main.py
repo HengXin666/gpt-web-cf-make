@@ -10,6 +10,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+# ── 必须在 uvicorn 启动前安装 SSE raw-patch ──────────────────────────
+from py.shared.sse_raw import install as _install_sse_raw_patch
+_install_sse_raw_patch()
+
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
