@@ -25,6 +25,23 @@ class RegisterConfigUpdate(BaseModel):
     target_available: int | None = None
     check_interval: int | None = None
     fixed_password: str | None = None
+    max_node_otp_timeouts: int | None = None
+    max_node_token_failures: int | None = None
+    auto_disable_failed_nodes: bool | None = None
+
+
+@router.get("/api/register/node-stats")
+async def get_register_node_stats():
+    """获取注册池节点失败统计"""
+    from ..proxy_pool import proxy_pool_service
+    return {"items": proxy_pool_service.get_register_node_stats()}
+
+
+@router.post("/api/register/node-stats/reset")
+async def reset_register_node_stats(node_id: str = ""):
+    """重置节点统计（node_id 为空则重置全部注册池节点）"""
+    from ..proxy_pool import proxy_pool_service
+    return proxy_pool_service.reset_register_node_stats(node_id)
 
 
 @router.get("/api/register/config")

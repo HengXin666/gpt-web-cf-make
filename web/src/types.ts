@@ -108,9 +108,28 @@ export interface RegisterConfig {
   check_interval: number;
   fixed_password: string;
   proxy_node_id: string;
+  max_node_otp_timeouts: number;
+  max_node_token_failures: number;
+  auto_disable_failed_nodes: boolean;
   enabled: boolean;
   stats: RegisterStats;
   logs: LogEntry[];
+  node_stats: RegisterNodeStat[];
+}
+
+export interface RegisterNodeStat {
+  id: string;
+  name: string;
+  server: string;
+  port: number;
+  protocol: string;
+  enabled: boolean;
+  otp_timeouts: number;
+  token_failures: number;
+  success: number;
+  total: number;
+  last_error: string;
+  last_used_at: string;
 }
 
 export interface MailConfig {

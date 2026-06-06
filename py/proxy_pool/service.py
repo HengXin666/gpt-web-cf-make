@@ -718,6 +718,101 @@ class ProxyPoolService:
         node = random.choice(candidates)
         return self._resolve_test_proxy(node), f"{node.name} ({node.protocol}://{node.server}:{node.port})"
 
+    # ── 注册流水线节点追踪 ──────────────────────────────────────
+
+    def record_register_result(self, node_name: str, success: bool, error: str = "") -> None:
+        """记录注册结果到对应节点。node_name 格式如 'HK-01 (http://x.x.x.x:8080)'"""
+        if not node_name:
+            return
+        with self._lock:
+            # 从 display_name 中匹配节点
+            for node in self._nodes.values():
+                if node_name.startswith(node.name):
+                    node.register_total = (node.register_total or 0) + 1
+                    node.register_last_used_at = _now()
+                    if success:
+                        node.register_success = (node.register_success or 0) + 1
+                        # 成功后重置失败计数（说明节点恢复了）
+                        node.register_otp_timeouts = 0
+                        node.register_token_failures = 0
+                        node.register_last_error = ""
+                    else:
+                        node.register_last_error = error[:500]
+                        if "OTP" in error.upper() or "验证码" in error or "timeout" in error.lower():
+                            node.register_otp_timeouts = (node.register_otp_timeouts or 0) + 1
+                        else:
+                            node.register_token_failures = (node.register_token_failures or 0) + 1
+                    node.updated_at = _now()
+                    self._save()
+                    return
+
+    def check_and_disable_failed_nodes(
+        self, max_otp_timeouts: int = 3, max_token_failures: int = 3
+    ) -> list[dict[str, Any]]:
+        """检查注册池节点，超过阈值的自动禁用。返回被禁用的节点列表。"""
+        disabled: list[dict[str, Any]] = []
+        with self._lock:
+            for node in self._nodes.values():
+                if node.pool != "register" or not node.enabled:
+                    continue
+                otp = node.register_otp_timeouts or 0
+                token = node.register_token_failures or 0
+                if (max_otp_timeouts > 0 and otp >= max_otp_timeouts) or \
+                   (max_token_failures > 0 and token >= max_token_failures):
+                    node.enabled = False
+                    node.updated_at = _now()
+                    disabled.append({
+                        "id": node.id,
+                        "name": node.name,
+                        "otp_timeouts": otp,
+                        "token_failures": token,
+                        "last_error": node.register_last_error,
+                    })
+            if disabled:
+                self._save()
+        return disabled
+
+    def get_register_node_stats(self) -> list[dict[str, Any]]:
+        """获取注册池所有节点的失败统计"""
+        with self._lock:
+            return [
+                {
+                    "id": n.id,
+                    "name": n.name,
+                    "server": n.server,
+                    "port": n.port,
+                    "protocol": n.protocol,
+                    "enabled": n.enabled,
+                    "otp_timeouts": n.register_otp_timeouts or 0,
+                    "token_failures": n.register_token_failures or 0,
+                    "success": n.register_success or 0,
+                    "total": n.register_total or 0,
+                    "last_error": n.register_last_error or "",
+                    "last_used_at": n.register_last_used_at or "",
+                }
+                for n in self._nodes.values()
+                if n.pool == "register"
+            ]
+
+    def reset_register_node_stats(self, node_id: str = "") -> dict[str, Any]:
+        """重置指定节点或全部注册池节点的统计"""
+        with self._lock:
+            targets = (
+                [self._nodes[node_id]] if node_id and node_id in self._nodes
+                else [n for n in self._nodes.values() if n.pool == "register"]
+            )
+            for node in targets:
+                node.register_otp_timeouts = 0
+                node.register_token_failures = 0
+                node.register_success = 0
+                node.register_total = 0
+                node.register_last_error = ""
+                node.register_last_used_at = ""
+                node.updated_at = _now()
+            if targets:
+                self._save()
+            return {"reset": len(targets)}
+
     # ── 分配管理 ────────────────────────────────────────────────
 
     def assign_to_account(self, account_id: str, node_id: str) -> dict[str, Any]:

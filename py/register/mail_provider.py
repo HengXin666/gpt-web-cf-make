@@ -71,7 +71,7 @@ cloudmail_token_cache: dict[str, tuple[str, float]] = {}
 def _config(mail_config: dict) -> dict:
     return {
         "request_timeout": float(mail_config.get("request_timeout") or 30),
-        "wait_timeout": float(mail_config.get("wait_timeout") or 30),
+        "wait_timeout": float(mail_config.get("wait_timeout") or 60),
         "wait_interval": float(mail_config.get("wait_interval") or 2),
         "user_agent": str(mail_config.get("user_agent") or "Mozilla/5.0"),
         "proxy": str(mail_config.get("proxy") or "").strip(),
@@ -310,6 +310,15 @@ class CloudflareTempMailProvider(BaseMailProvider):
         token = str(data.get("jwt") or data.get("token") or "").strip()
         if not address:
             raise RuntimeError("CloudflareTempMail 缺少 address")
+        return {"provider": self.name, "provider_ref": self.provider_ref, "address": address, "token": token}
+
+    def get_existing_mailbox(self, email: str) -> dict[str, Any]:
+        """通过管理员密码获取已有邮箱地址的 JWT，用于查询邮件。"""
+        data = self._request("POST", "/admin/get_address", payload={"address": email})
+        address = str(data.get("address") or "").strip()
+        token = str(data.get("jwt") or data.get("token") or "").strip()
+        if not address or not token:
+            raise RuntimeError(f"CloudflareTempMail 无法获取已有邮箱 {email} 的 JWT")
         return {"provider": self.name, "provider_ref": self.provider_ref, "address": address, "token": token}
 
     def fetch_latest_message(self, mailbox: dict[str, Any]) -> dict[str, Any] | None:
@@ -1096,3 +1105,29 @@ def wait_for_code(mail_config: dict, mailbox: dict) -> str | None:
         return provider.wait_for_code(mailbox)
     finally:
         provider.close()
+
+
+def get_existing_mailbox(mail_config: dict, email: str) -> dict:
+    """通过管理员密码获取已有邮箱地址的 JWT，用于查询邮件。"""
+    enabled = _enabled_entries(mail_config)
+    tried: set[str] = set()
+    last_error = ""
+    for _ in range(len(enabled)):
+        provider = _create_provider(mail_config)
+        provider_key = f"{provider.name}#{provider.provider_ref}"
+        try:
+            if provider_key in tried:
+                continue
+            tried.add(provider_key)
+            if hasattr(provider, "get_existing_mailbox"):
+                mailbox = provider.get_existing_mailbox(email)
+                return mailbox
+            else:
+                raise RuntimeError(f"邮箱提供商 {provider.name} 不支持查询已有邮箱")
+        except RuntimeError as error:
+            last_error = str(error)
+            if "DDG日上限已达" not in last_error:
+                raise
+        finally:
+            provider.close()
+    raise RuntimeError(last_error or "所有启用的邮箱提供商均无法查询已有邮箱")

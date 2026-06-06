@@ -168,6 +168,40 @@ def _response_json(resp: Any) -> dict[str, Any]:
         return {}
 
 
+def _response_debug_detail(resp: Any, limit: int = 800) -> str:
+    """构建调试详情字符串，包含 CF/OpenAI 请求头，便于排查问题"""
+    if resp is None:
+        return ""
+    data = _response_json(resp)
+    parts = [
+        f"url={str(getattr(resp, 'url', '') or '')[:300]}",
+        f"content_type={str(getattr(resp, 'headers', {}).get('content-type') or '')}",
+    ]
+    for key in ("cf-ray", "x-request-id", "openai-processing-ms"):
+        value = str(getattr(resp, "headers", {}).get(key) or "").strip()
+        if value:
+            parts.append(f"{key}={value}")
+    if data:
+        parts.append(f"json={json.dumps(data, ensure_ascii=False)[:limit]}")
+    else:
+        parts.append(f"body={str(getattr(resp, 'text', '') or '')[:limit]}")
+    return ", ".join(parts)
+
+
+def _is_cloudflare_challenge(resp: Any) -> bool:
+    """检测是否被 Cloudflare 拦截"""
+    if resp is None:
+        return False
+    text = str(getattr(resp, "text", "") or "").lower()
+    headers = getattr(resp, "headers", {}) or {}
+    server = str(headers.get("server") or "").lower()
+    return (
+        "cloudflare" in server
+        or "challenges.cloudflare.com" in text
+        or "<title>just a moment" in text
+    )
+
+
 def _make_trace_headers() -> dict[str, str]:
     trace_id = str(random.getrandbits(64))
     parent_id = str(random.getrandbits(64))
@@ -369,6 +403,8 @@ class PlatformRegistrar:
         self.device_id = str(uuid.uuid4())
         self.token_oauth = _normalize_token_oauth(token_oauth)
         self.fixed_password = str(fixed_password or "").strip()
+        self.code_verifier = ""
+        self.platform_auth_code = ""
 
     def close(self) -> None:
         self.session.close()
@@ -384,7 +420,7 @@ class PlatformRegistrar:
         """步骤2: 初始化 Platform OAuth 授权"""
         self.session.cookies.set("oai-did", self.device_id, domain=".auth.openai.com")
         self.session.cookies.set("oai-did", self.device_id, domain="auth.openai.com")
-        _, code_challenge = _generate_pkce()
+        self.code_verifier, code_challenge = _generate_pkce()
         params = {
             "issuer": AUTH_BASE,
             "client_id": PLATFORM_OAUTH_CLIENT_ID,
@@ -413,12 +449,17 @@ class PlatformRegistrar:
         if resp is None or resp.status_code != 200:
             err = _response_json(resp).get("error", {}) if resp is not None else {}
             detail = f": {err.get('code', '')} - {err.get('message', '')}".strip(" -") if err else ""
-            raise RuntimeError(error or f"platform_authorize_http_{getattr(resp, 'status_code', 'unknown')}{detail}")
+            if _is_cloudflare_challenge(resp):
+                raise RuntimeError(f"被 Cloudflare 拦截，请更换 IP 重试: {_response_debug_detail(resp)}")
+            debug = _response_debug_detail(resp)
+            status = getattr(resp, "status_code", "unknown")
+            raise RuntimeError(error or f"platform_authorize_http_{status}{detail}, {debug}")
 
     def _register_user(self, email: str, password: str) -> None:
         """步骤3: 注册用户"""
         headers = self._json_headers(f"{AUTH_BASE}/create-account/password")
-        headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "username_password_create")
+        sentinel_val, _ = build_sentinel_token(self.session, self.device_id, "username_password_create")
+        headers["openai-sentinel-token"] = sentinel_val
         resp, error = _request_with_retry(
             self.session, "post",
             f"{AUTH_BASE}/api/accounts/user/register",
@@ -454,7 +495,10 @@ class PlatformRegistrar:
             headers=headers,
         )
         if resp is None or resp.status_code != 200:
-            headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "authorize_continue")
+            sentinel_val, oai_sc = build_sentinel_token(self.session, self.device_id, "authorize_continue")
+            headers["openai-sentinel-token"] = sentinel_val
+            if oai_sc:
+                self.session.cookies.set("oai-sc", oai_sc, domain=".auth.openai.com")
             resp, error = _request_with_retry(
                 self.session, "post",
                 f"{AUTH_BASE}/api/accounts/email-otp/validate",
@@ -472,7 +516,8 @@ class PlatformRegistrar:
     def _create_account(self, name: str, birthdate: str) -> None:
         """步骤6: 创建账号个人信息"""
         headers = self._json_headers(f"{AUTH_BASE}/about-you")
-        headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "oauth_create_account")
+        sentinel_val, _ = build_sentinel_token(self.session, self.device_id, "oauth_create_account")
+        headers["openai-sentinel-token"] = sentinel_val
         resp, error = _request_with_retry(
             self.session, "post",
             f"{AUTH_BASE}/api/accounts/create_account",
@@ -482,6 +527,60 @@ class PlatformRegistrar:
         if resp is None or resp.status_code not in (200, 302):
             detail = f", detail={json.dumps(_response_json(resp), ensure_ascii=False)}" if resp is not None else ""
             raise RuntimeError(error or f"create_account_http_{getattr(resp, 'status_code', 'unknown')}{detail}")
+        data = _response_json(resp)
+        callback_params = _extract_oauth_callback_params(str(data.get("continue_url") or "").strip())
+        self.platform_auth_code = str((callback_params or {}).get("code") or "").strip()
+
+    def _exchange_registered_tokens(self) -> dict[str, Any]:
+        """步骤7 (简化): 用 create_account 返回的 OAuth code 直接换 token。
+        参考项目: openai_register.py → request_platform_oauth_token
+        使用 /api/accounts/oauth/token 端点，比完整登录流程更可靠。
+        """
+        if not self.platform_auth_code:
+            raise RuntimeError("缺少 OAuth authorization code (platform_auth_code 为空)")
+        headers = {
+            "accept": "*/*",
+            "accept-language": "zh-CN,zh;q=0.9",
+            "auth0-client": PLATFORM_AUTH0_CLIENT,
+            "cache-control": "no-cache",
+            "content-type": "application/json",
+            "origin": PLATFORM_BASE,
+            "pragma": "no-cache",
+            "priority": "u=1, i",
+            "referer": f"{PLATFORM_BASE}/",
+            "sec-ch-ua": SEC_CH_UA,
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-site",
+            "user-agent": USER_AGENT,
+        }
+        resp, error = _request_with_retry(
+            self.session,
+            "post",
+            f"{AUTH_BASE}/api/accounts/oauth/token",
+            headers=headers,
+            json={
+                "client_id": PLATFORM_OAUTH_CLIENT_ID,
+                "code_verifier": self.code_verifier,
+                "grant_type": "authorization_code",
+                "code": self.platform_auth_code,
+                "redirect_uri": PLATFORM_OAUTH_REDIRECT_URI,
+            },
+            timeout=60,
+        )
+        if resp is None or resp.status_code != 200:
+            body = ""
+            try:
+                body = (resp.text or "")[:500] if resp is not None else ""
+            except Exception:
+                pass
+            raise RuntimeError(error or f"oauth_token_http_{getattr(resp, 'status_code', 'unknown')}_body={body}")
+        data = _response_json(resp)
+        if not data.get("access_token") or not data.get("refresh_token"):
+            raise RuntimeError("token exchange 返回缺少 access_token 或 refresh_token")
+        return data
 
     def _login_and_exchange_tokens(
         self, email: str, password: str, mailbox: dict[str, Any], mail_config: dict[str, Any], proxy: str
@@ -544,7 +643,10 @@ class PlatformRegistrar:
 
         def _do_authorize_continue() -> tuple[Any | None, str]:
             h = _login_json_headers(f"{AUTH_BASE}/log-in?usernameKind=email")
-            h["openai-sentinel-token"] = build_sentinel_token(login_session, login_device_id, "authorize_continue")
+            sentinel_val, oai_sc = build_sentinel_token(login_session, login_device_id, "authorize_continue")
+            h["openai-sentinel-token"] = sentinel_val
+            if oai_sc:
+                login_session.cookies.set("oai-sc", oai_sc, domain=".auth.openai.com")
             return _request_with_retry(
                 login_session, "post",
                 f"{AUTH_BASE}/api/accounts/authorize/continue",
@@ -575,7 +677,10 @@ class PlatformRegistrar:
             raise RuntimeError(error or f"email_submit_http_{getattr(resp, 'status_code', 'unknown')}" + (f": {detail}" if detail else ""))
 
         headers = _login_json_headers(f"{AUTH_BASE}/log-in/password")
-        headers["openai-sentinel-token"] = build_sentinel_token(login_session, login_device_id, "password_verify")
+        sentinel_val, oai_sc = build_sentinel_token(login_session, login_device_id, "password_verify")
+        headers["openai-sentinel-token"] = sentinel_val
+        if oai_sc:
+            login_session.cookies.set("oai-sc", oai_sc, domain=".auth.openai.com")
         resp, error = _request_with_retry(
             login_session, "post",
             f"{AUTH_BASE}/api/accounts/password/verify",
@@ -678,6 +783,8 @@ class PlatformRegistrar:
                 self.session.close()
                 self.session = create_session(proxy)
                 self.device_id = str(uuid.uuid4())
+                self.code_verifier = ""
+                self.platform_auth_code = ""
                 return self._register_once(mail_config, proxy, log_callback)
             except UsernameAlreadyExistsError as exc:
                 email = exc.args[0] if exc.args else "?"
@@ -721,18 +828,22 @@ class PlatformRegistrar:
         self._validate_otp(code)
         self._create_account(f"{first_name} {last_name}", _random_birthdate())
 
-        log("[7/7] 登录换取 Token...", "info")
-        tokens = self._login_and_exchange_tokens(email, password, mailbox, mail_config, proxy)
-        log(f"      完成! refresh_token={'有' if tokens.get('refresh_token') else '无'}", "green")
+        log("[7/7] 换取 Token (简化流)...", "info")
+        # 优先使用 create_account 返回的 OAuth code 直接换 token（更可靠）
+        try:
+            tokens = self._exchange_registered_tokens()
+            log(f"      简化流完成! refresh_token={'有' if tokens.get('refresh_token') else '无'}", "green")
+        except Exception as exc:
+            log(f"      简化流失败: {exc}, 回退到完整登录流...", "yellow")
+            tokens = self._login_and_exchange_tokens(email, password, mailbox, mail_config, proxy)
+            log(f"      完整登录流完成! refresh_token={'有' if tokens.get('refresh_token') else '无'}", "green")
         return {
             "email": email,
             "password": password,
-            "access_token": tokens["access_token"],
-            "refresh_token": tokens["refresh_token"],
-            "id_token": tokens["id_token"],
-            "oauth_profile": tokens.get("oauth_profile") or "",
-            "oauth_client_id": tokens.get("oauth_client_id") or "",
-            "oauth_scope": tokens.get("oauth_scope") or "",
+            "access_token": str(tokens.get("access_token") or "").strip(),
+            "refresh_token": str(tokens.get("refresh_token") or "").strip(),
+            "id_token": str(tokens.get("id_token") or "").strip(),
+            "source_type": "web",
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 

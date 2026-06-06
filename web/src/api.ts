@@ -118,6 +118,14 @@ export const api = {
     return request<import("./types").RegisterConfig>("POST", "/api/register/reset");
   },
 
+  getRegisterNodeStats() {
+    return request<{ items: import("./types").RegisterNodeStat[] }>("GET", "/api/register/node-stats");
+  },
+
+  resetRegisterNodeStats(nodeId?: string) {
+    return request<{ reset: number }>("POST", `/api/register/node-stats/reset${nodeId ? `?node_id=${nodeId}` : ""}`);
+  },
+
   // 设置
   getSettings() {
     return request<import("./types").AppConfig>("GET", "/api/settings");

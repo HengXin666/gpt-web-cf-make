@@ -45,6 +45,9 @@ export const useRegisterStore = create<RegisterStore>((set, get) => ({
         target_available: cfg.target_available,
         check_interval: cfg.check_interval,
         fixed_password: cfg.fixed_password,
+        max_node_otp_timeouts: cfg.max_node_otp_timeouts,
+        max_node_token_failures: cfg.max_node_token_failures,
+        auto_disable_failed_nodes: cfg.auto_disable_failed_nodes,
       });
       set({ config: updated });
     } finally {

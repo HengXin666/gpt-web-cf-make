@@ -90,11 +90,25 @@ class SentinelTokenGenerator:
         return "gAAAAAB" + self.ERROR_PREFIX + self._b64(str(None))
 
 
-def build_sentinel_token(session: Any, device_id: str, flow: str) -> str:
-    """完整的 sentinel token 获取流程: requirements → PoW → token"""
+def build_sentinel_token(
+    session: Any,
+    device_id: str,
+    flow: str,
+    *,
+    user_agent: str = "",
+    sec_ch_ua: str = "",
+) -> tuple[str, str]:
+    """完整的 sentinel token 获取流程: requirements → PoW → token
+
+    Returns:
+        (sentinel_header_value, oai_sc_cookie_value) 元组 — oai_sc cookie 可减少后续请求的 CF 挑战
+    """
     from ..shared.http_client import request_with_retry, response_json
 
+    ua = user_agent or USER_AGENT
+    ch_ua = sec_ch_ua or SEC_CH_UA
     generator = SentinelTokenGenerator(device_id)
+
     resp, error = request_with_retry(
         session,
         "post",
@@ -104,16 +118,31 @@ def build_sentinel_token(session: Any, device_id: str, flow: str) -> str:
             "Content-Type": "text/plain;charset=UTF-8",
             "Referer": "https://sentinel.openai.com/backend-api/sentinel/frame.html",
             "Origin": "https://sentinel.openai.com",
-            "User-Agent": USER_AGENT,
-            "sec-ch-ua": SEC_CH_UA,
+            "User-Agent": ua,
+            "sec-ch-ua": ch_ua,
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',
         },
         timeout=20,
     )
+
+    # 优雅降级: JSON 解析失败时返回不含 challenge token 的 sentinel header
     if resp is None:
-        raise RuntimeError(f"sentinel_req_failed: {error}")
-    data = response_json(resp)
+        fallback = json.dumps(
+            {"p": generator.generate_requirements_token(), "t": "", "c": "", "id": device_id, "flow": flow},
+            separators=(",", ":"),
+        )
+        return fallback, ""
+
+    try:
+        data = resp.json() if resp.text else {}
+    except Exception:
+        fallback = json.dumps(
+            {"p": generator.generate_requirements_token(), "t": "", "c": "", "id": device_id, "flow": flow},
+            separators=(",", ":"),
+        )
+        return fallback, ""
+
     token = str(data.get("token") or "").strip()
     if resp.status_code != 200 or not token:
         raise RuntimeError(f"sentinel_req_failed_{resp.status_code}")
@@ -123,4 +152,10 @@ def build_sentinel_token(session: Any, device_id: str, flow: str) -> str:
         if pow_data.get("required") and pow_data.get("seed")
         else generator.generate_requirements_token()
     )
-    return json.dumps({"p": p_value, "t": "", "c": token, "id": device_id, "flow": flow}, separators=(",", ":"))
+    sentinel_value = json.dumps(
+        {"p": p_value, "t": "", "c": token, "id": device_id, "flow": flow},
+        separators=(",", ":"),
+    )
+    # oai-sc cookie = "0" + sentinel token "c" value (the challenge token from the server)
+    oai_sc_value = "0" + token
+    return sentinel_value, oai_sc_value

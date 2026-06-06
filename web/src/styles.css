@@ -1203,3 +1203,229 @@ select {
     padding: 14px;
   }
 }
+
+/* ── Register page modernization ────────────────────────────── */
+
+.rk-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.rk-quick-settings > .ant-card-body {
+  padding: 18px 22px;
+}
+
+/* Stat cards */
+.rk-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rk-stat-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-solid) 80%, transparent);
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+  cursor: default;
+}
+
+.rk-stat-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.rk-stat-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rk-stat-value {
+  font-size: 16px;
+  font-weight: 780;
+  line-height: 1.1;
+}
+
+.rk-stat-label {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+/* Gauge card */
+.rk-gauge-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-solid) 70%, transparent);
+}
+
+/* Pool metric */
+.rk-pool-metric {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-solid) 70%, transparent);
+}
+
+/* Mail globals */
+.rk-mail-globals {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Provider list */
+.rk-provider-list .ant-collapse-item {
+  border: 1px solid var(--line) !important;
+  border-radius: 10px !important;
+  margin-bottom: 10px !important;
+  background: color-mix(in srgb, var(--panel-solid) 70%, transparent);
+  overflow: hidden;
+}
+
+.rk-provider-list .ant-collapse-header {
+  align-items: center !important;
+  padding: 10px 14px !important;
+}
+
+.rk-provider-list .ant-collapse-content-box {
+  padding: 0 14px 14px !important;
+}
+
+.rk-provider-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  transition: background 200ms ease, opacity 200ms ease;
+}
+
+.rk-provider-editor {
+  padding-top: 8px;
+}
+
+.rk-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Log toolbar */
+.rk-log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.rk-log-filter-tag {
+  font-size: 11px;
+  padding: 0 8px;
+  border-radius: 4px;
+  transition: opacity 150ms ease;
+  user-select: none;
+}
+
+.rk-log-viewer {
+  flex: 1;
+  min-height: 280px;
+}
+
+.rk-log-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 240px;
+}
+
+/* Node stats */
+.rk-node-stats {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-solid) 70%, transparent);
+}
+
+.rk-node-list {
+  display: grid;
+  gap: 6px;
+}
+
+.rk-node-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel-solid) 50%, transparent);
+  transition: border-color 200ms ease;
+}
+
+.rk-node-row.is-bad {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--line));
+  background: color-mix(in srgb, var(--danger) 6%, var(--panel-solid));
+}
+
+.rk-node-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.rk-node-dot.online {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent);
+}
+
+.rk-node-dot.offline {
+  background: var(--danger);
+}
+
+/* Empty state */
+.rk-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+/* Responsive */
+@media (max-width: 1120px) {
+  .rk-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .rk-stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .rk-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rk-mail-globals {
+    grid-template-columns: 1fr;
+  }
+}

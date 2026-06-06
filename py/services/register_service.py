@@ -57,12 +57,14 @@ class RegisterService:
         )
 
     def get(self) -> dict[str, Any]:
-        """获取完整的注册状态（配置 + 统计 + 日志）"""
+        """获取完整的注册状态（配置 + 统计 + 日志 + 节点统计）"""
         with self._lock:
+            from ..proxy_pool import proxy_pool_service
             return {
                 **self._config.to_dict(),
                 "stats": self._stats.to_dict() if hasattr(self, "_stats") else {},
                 "logs": [log.to_dict() for log in self._logs[-300:]],
+                "node_stats": proxy_pool_service.get_register_node_stats(),
             }
 
     def _init_stats(self) -> None:
@@ -183,6 +185,7 @@ class RegisterService:
         from .config_service import config_service
         from ..shared.models import _now
 
+        node_info = ""
         try:
             config = config_service.get()
             from ..proxy_pool import proxy_pool_service
@@ -220,6 +223,10 @@ class RegisterService:
             }])
             self._append_log(f"#{index} 注册成功: {result.get('email', '?')}", "green")
 
+            # 记录节点成功
+            if node_info:
+                proxy_pool_service.record_register_result(node_info, True)
+
             # 新注册账号异步刷新配额
             added_email = result.get("email", "")
             def _post_register():
@@ -256,8 +263,24 @@ class RegisterService:
 
             return {"ok": True, "email": result.get("email", "")}
         except Exception as exc:
-            self._append_log(f"#{index} 注册失败: {exc}", "red")
-            return {"ok": False, "error": str(exc)}
+            error_str = str(exc)
+            self._append_log(f"#{index} 注册失败: {error_str}", "red")
+            # 记录节点失败 + 检查是否要淘汰
+            from ..proxy_pool import proxy_pool_service
+            if node_info:
+                proxy_pool_service.record_register_result(node_info, False, error_str)
+            if self._config.auto_disable_failed_nodes:
+                disabled = proxy_pool_service.check_and_disable_failed_nodes(
+                    max_otp_timeouts=self._config.max_node_otp_timeouts,
+                    max_token_failures=self._config.max_node_token_failures,
+                )
+                for d in disabled:
+                    self._append_log(
+                        f"⚠️ 节点 {d['name']} 已被自动淘汰 "
+                        f"(OTP超时:{d['otp_timeouts']}, Token失败:{d['token_failures']})",
+                        "yellow",
+                    )
+            return {"ok": False, "error": error_str}
 
     def _run(self) -> None:
         """注册任务主循环 - 在线程池中运行"""

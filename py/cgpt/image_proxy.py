@@ -128,6 +128,13 @@ class ChatGPTImageProxy:
             message = str(detail.get("error") or detail.get("message") or "invalid image edit request")
             return _openai_error(message, int(exc.status_code), "invalid_request", "invalid_request_error")
         payload.setdefault("model", "gpt-image-2")
+        # 验证输入图片数量
+        input_count = len(payload.get("images") or [])
+        if input_count > 2:
+            return _openai_error(
+                f"image edits only support up to 2 input images, got {input_count}",
+                400, "invalid_request", "invalid_request_error",
+            )
         # 保存输入图片到去重存储，获取 MD5 hash
         from ..services.proxy_usage_service import image_dedup_store
         input_image_hashes: list[str] = []
@@ -232,7 +239,14 @@ class ChatGPTImageProxy:
                 request_content=request_content,
                 response_content=response_content,
             )
-            return JSONResponse(content=result)
+            return JSONResponse(
+                content=result,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            )
         except ImageGenerationError as exc:
             attempts = account_service.stop_attempt_tracking(tracking_token)
             latency_ms = int((time.perf_counter() - started) * 1000)
@@ -353,7 +367,13 @@ class ChatGPTImageProxy:
         return StreamingResponse(
             iterator(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+            },
         )
 
     @staticmethod

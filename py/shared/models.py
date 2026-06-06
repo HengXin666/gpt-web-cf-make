@@ -66,7 +66,7 @@ class RegisterConfig:
     """注册机配置"""
     mail: dict[str, Any] = field(default_factory=lambda: {
         "request_timeout": 30,
-        "wait_timeout": 30,
+        "wait_timeout": 60,
         "wait_interval": 2,
         "proxy": "",
         "providers": [],
@@ -80,6 +80,9 @@ class RegisterConfig:
     check_interval: int = 5
     fixed_password: str = ""
     proxy_node_id: str = ""               # 注册机固定代理节点
+    max_node_otp_timeouts: int = 5        # 节点 OTP 超时淘汰阈值
+    max_node_token_failures: int = 5      # 节点 token 失败淘汰阈值
+    auto_disable_failed_nodes: bool = True  # 是否自动淘汰失败节点
     enabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:

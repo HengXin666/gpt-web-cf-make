@@ -33,6 +33,13 @@ class ProxyNode:
     last_tested_at: str = ""
     last_error: str = ""
     enabled: bool = True
+    # 注册流水线失败统计
+    register_otp_timeouts: int = 0        # 邮箱验证码超时次数
+    register_token_failures: int = 0      # token/凭证获取失败次数
+    register_success: int = 0             # 注册成功次数
+    register_total: int = 0               # 总尝试次数
+    register_last_error: str = ""         # 最近一次错误
+    register_last_used_at: str = ""       # 最近一次用于注册的时间
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
 
